@@ -1,0 +1,82 @@
+# Конфигурация службы перечня «нежелательных организаций» (272-ФЗ).
+#
+# Где файл ищется сам, если не задан --config или CONFIG_FILE:
+#   Linux    /etc/perechen/config.yaml
+#   macOS    /usr/local/etc/perechen/config.yaml
+#   Windows  %ProgramData%\Perechen272FZ\config.yaml
+#   затем    <каталог установки>/config.yaml
+#
+# Переменные окружения имеют приоритет над значениями файла.
+# Проверить, что именно подхватилось: perechen paths
+
+# ------------------------------------------------------------- источник
+# Страница перечня: точка входа для человека и адрес в письмах-эскалациях.
+MINJUST_PAGE_URL: https://minjust.gov.ru/ru/pages/perechen-inostrannyh-i-mezhdunarodnyh-organizacij-deyatelnost-kotoryh-priznana-nezhelatelnoj-na-territorii-rossijskoj-federacii/
+
+# Прямая ссылка на выгрузку. Сам реестр отдаёт отдельный сервис
+# reestrs.minjust.gov.ru, идентификатор таблицы виден в исходном коде страницы
+# перечня: `let id = "..."` рядом с `ExternalApi.setBaseUrl(...)`.
+# Проверено 20.08.2026: 200, xlsx 43 КБ, 390 записей, дата актуальности
+# в ячейке A2 — 14.08.2026. Если Минюст сменит идентификатор таблицы,
+# ссылку нужно взять со страницы заново тем же способом.
+MINJUST_EXPORT_URL: https://reestrs.minjust.gov.ru/rest/registry/c2d1692e-a9f6-5a79-13ee-5da5b42980df/export
+
+# Запасной путь на случай, если ссылка снова станет обычной: поиск на странице
+# по css-селектору. Сейчас не сработает — кнопка «Загрузить реестр» имеет
+# href="#", а адрес собирается javascript'ом (см. README, п. 10, решение Р-5).
+EXPORT_LINK_SELECTOR: 'a[href*=".xlsx"]'
+HTTP_TIMEOUT_SEC: 60
+RETRIES: 3
+RETRY_DELAYS_MIN: "1,5,15"
+UNAVAILABLE_ESCALATE_DAYS: 3
+
+# ---------------------------------------------------------- расписания
+# Всегда МСК: служба считает московское время сама, часовой пояс и настройки
+# времени операционной системы на расписание не влияют.
+DOWNLOAD_CRON: "0 6 * * *"
+AUTO_PUBLISH_CRON: "0 20 * * *"
+
+# ------------------------------------------------------------ каталоги
+# Значения по умолчанию зависят от ОС; установщик подставляет сюда те,
+# которые выбраны при установке.
+#   Linux    /var/lib/perechen        /mnt/cdi/inbox
+#   macOS    /usr/local/var/perechen  /usr/local/var/perechen/cdi-inbox
+#   Windows  C:\ProgramData\Perechen272FZ\{,cdi-inbox}
+DATA_DIR: /var/lib/perechen
+CDI_DROP_DIR: /mnt/cdi/inbox
+# Справочник стран и собранный веб-интерфейс берутся из каталога установки.
+# Переопределять нужно, только если они лежат в другом месте:
+# COUNTRIES_FILE: /opt/perechen/assets/countries_ru.txt
+# UI_DIR: /opt/perechen/web
+
+# --------------------------------------------------------------- журнал
+# Без этого ключа: на Linux и macOS — stdout (его перехватывают journald и
+# launchd), на Windows — <DATA_DIR>\logs\perechen.log, потому что планировщик
+# задач вывод не сохраняет. Ротация — по 8 МБ, 5 файлов.
+# Установщик подставляет сюда фактический путь.
+# LOG_FILE: ""
+LOG_LEVEL: info        # debug | info | warning | error
+
+# ---------------------------------------------------------------- почта
+SMTP_HOST: smtp.corp.example
+SMTP_PORT: 25
+SMTP_USER: ""
+SMTP_PASS: ""
+SMTP_FROM: perechen@corp.example
+NOTIFY_EMAILS: otvetstvennyi@corp.example
+NOTIFY_ON_NO_CHANGES: false
+
+# ----------------------------------------------------- интерфейс и доступ
+HOST: 0.0.0.0
+PORT: 8080
+# Адрес, по которому интерфейс открывают из писем.
+UI_BASE_URL: http://perechen.corp.example:8080
+BASIC_AUTH_USER: admin
+BASIC_AUTH_PASS: change-me
+
+# ------------------------------------------------- поведение разбора (п. 14)
+GP_DECISION_FORMAT: date_only
+COUNTRY_NORMALIZE: false
+CSV_QUOTE_MODE: minimal
+TRIM_VALUES: true
+COLLAPSE_INNER_SPACES: true

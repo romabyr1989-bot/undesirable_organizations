@@ -1,0 +1,19 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+
+# Данные сервиса и локальные конфиги
+data/
+cdi-inbox/
+config.yaml
+*.log
+
+# Комплекты поставки (scripts/build.sh, scripts\build.ps1)
+dist/
+
+# macOS
+.DS_Store

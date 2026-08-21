@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Демон launchd. Заполняется install.sh: значения @@...@@ подставляются. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ru.perechen.server</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@@PREFIX@@/bin/perechen</string>
+    <string>--config</string>
+    <string>@@CONFIG@@</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>@@PREFIX@@</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Перезапуск после падения, но не после штатной остановки. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <!-- Журнал ведёт сама служба (LOG_FILE, ротация по 8 МБ), launchd
+       сохраняет только то, что упало до его инициализации. -->
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>@@ERROR_LOG@@</string>
+</dict>
+</plist>

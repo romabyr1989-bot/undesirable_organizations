@@ -1,0 +1,9 @@
+{
+  "name": "Перечень 272-ФЗ",
+  "short_name": "Перечень",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1857B6",
+  "description": "Обработка перечня нежелательных организаций (272-ФЗ)"
+}

@@ -1,0 +1,30 @@
+name: perechen_server
+description: >-
+  Сервис обработки перечня «нежелательных организаций» (272-ФЗ): планировщик,
+  загрузчик файла Минюста, БД, REST API, SMTP-уведомления и публикация целевого
+  CSV в папку CDI.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  perechen_core:
+    path: ../../packages/core
+  shelf: ^1.4.1
+  shelf_router: ^1.1.4
+  shelf_static: ^1.1.2
+  sqlite3: ^2.4.6
+  http: ^1.2.2
+  html: ^0.15.4
+  mailer: ^6.1.0
+  yaml: ^3.1.2
+  crypto: ^3.0.3
+  path: ^1.9.0
+  args: ^2.5.0
+
+dev_dependencies:
+  test: ^1.25.0
+  archive: ^3.6.1
+  lints: ^4.0.0

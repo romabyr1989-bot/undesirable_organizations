@@ -1,0 +1,20 @@
+name: perechen_core
+description: >-
+  Ядро сервиса обработки перечня «нежелательных организаций» (272-ФЗ):
+  модели, парсер xlsx, правила разбора наименований, конвертер в целевой CSV,
+  diff версий. Чистый Dart, без зависимостей от Flutter.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  archive: ^3.6.1
+  xml: ^6.5.0
+  crypto: ^3.0.3
+  collection: ^1.18.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^4.0.0

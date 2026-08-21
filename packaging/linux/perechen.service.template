@@ -1,0 +1,34 @@
+# Юнит службы перечня 272-ФЗ. Заполняется install.sh: значения @@...@@
+# подставляются на месте.
+[Unit]
+Description=Сервис перечня «нежелательных организаций» (272-ФЗ)
+Documentation=file://@@PREFIX@@/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@@USER@@
+Group=@@USER@@
+WorkingDirectory=@@PREFIX@@
+Environment=CONFIG_FILE=@@CONFIG@@
+ExecStart=@@PREFIX@@/bin/perechen
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+
+# Журнал: сервис пишет json-строки в stdout, их забирает journald.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=perechen
+
+# Ограничения: службе нужны только свои каталоги.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=@@DATA_DIR@@ @@CDI_DIR@@
+
+[Install]
+WantedBy=multi-user.target

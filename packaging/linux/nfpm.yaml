@@ -1,0 +1,55 @@
+# Сборка .deb и .rpm из готового комплекта (необязательно: install.sh ставит
+# службу и без пакета, одинаково на Debian/Astra и RED OS/ALT).
+#
+# Запускать из каталога комплекта dist/perechen-<версия>-linux-<арх>:
+#   VERSION=1.0.0 ARCH=amd64 nfpm package -f packaging/nfpm.yaml -p deb -t ..
+#   VERSION=1.0.0 ARCH=amd64 nfpm package -f packaging/nfpm.yaml -p rpm -t ..
+#
+# nfpm — один бинарник, ни dpkg-buildpackage, ни rpmbuild не нужны:
+# https://github.com/goreleaser/nfpm
+name: perechen
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+release: 1
+section: utils
+priority: optional
+maintainer: ${MAINTAINER}
+description: |
+  Сервис перечня «нежелательных организаций» (272-ФЗ).
+  Ежедневно скачивает файл Минюста, разбирает наименования, показывает
+  результат ответственному и выкладывает целевой CSV в папку CDI.
+vendor: ${VENDOR}
+license: Proprietary
+
+contents:
+  - src: ./bin/perechen
+    dst: /opt/perechen/bin/perechen
+    file_info:
+      mode: 0755
+  - src: ./web
+    dst: /opt/perechen/web
+  - src: ./assets
+    dst: /opt/perechen/assets
+  - src: ./lib
+    dst: /opt/perechen/lib
+  - src: ./config.example.yaml
+    dst: /opt/perechen/config.example.yaml
+  - src: ./packaging/perechen.service
+    dst: /usr/lib/systemd/system/perechen.service
+  - src: ./README.md
+    dst: /opt/perechen/README.md
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: ./packaging/postinstall.sh
+  preremove: ./packaging/preremove.sh
+
+overrides:
+  rpm:
+    depends:
+      - systemd
+  deb:
+    depends:
+      - systemd
