@@ -48,3 +48,90 @@ String noteTitle(String note) => switch (note) {
       'stale_correction' => 'ручная правка отвязалась от наименования',
       _ => note,
     };
+
+/// Расписание cron человеческим языком.
+///
+/// `0 6 * * *` -> `в 06:00`, `0 6 * * 1-5` -> `по будням в 06:00`,
+/// `*/15 * * * *` -> `каждые 15 минут`, `0 6,18 * * *` -> `в 06:00 и 18:00`.
+///
+/// Выражение, которое не удалось разобрать, возвращается как есть: лучше
+/// показать сырое расписание, чем соврать про время запуска.
+String cronTitle(String cron) {
+  final parts = cron.trim().split(RegExp(r'\s+'));
+  if (parts.length != 5) return cron;
+  final [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+
+  final everyMinutes = RegExp(r'^\*/(\d+)$').firstMatch(minute);
+  if (everyMinutes != null &&
+      hour == '*' &&
+      dayOfMonth == '*' &&
+      month == '*' &&
+      dayOfWeek == '*') {
+    final step = int.parse(everyMinutes.group(1)!);
+    return 'каждые ${plural(step, 'минуту', 'минуты', 'минут')}';
+  }
+
+  final everyHours = RegExp(r'^\*/(\d+)$').firstMatch(hour);
+  if (everyHours != null &&
+      _isNumber(minute) &&
+      dayOfMonth == '*' &&
+      month == '*' &&
+      dayOfWeek == '*') {
+    final step = int.parse(everyHours.group(1)!);
+    return 'каждые ${plural(step, 'час', 'часа', 'часов')}';
+  }
+
+  if (!_isNumber(minute)) return cron;
+  final hours = hour.split(',');
+  if (hours.any((h) => !_isNumber(h))) return cron;
+
+  final times = hours
+      .map((h) => '${_two(int.parse(h))}:${_two(int.parse(minute))}')
+      .join(' и ');
+  final days = _cronDays(dayOfMonth, month, dayOfWeek);
+  if (days == null) return cron;
+  return days.isEmpty ? 'в $times' : '$days в $times';
+}
+
+/// `Europe/Moscow` -> `МСК`. Прочие зоны показываем как есть.
+String timeZoneTitle(String zone) =>
+    zone == 'Europe/Moscow' ? 'МСК' : zone;
+
+/// Дни запуска словами. Пустая строка — каждый день, `null` — не разобрали.
+String? _cronDays(String dayOfMonth, String month, String dayOfWeek) {
+  if (month != '*') return null;
+  if (dayOfWeek == '*' && dayOfMonth == '*') return '';
+  if (dayOfWeek != '*' && dayOfMonth != '*') return null;
+
+  if (dayOfWeek != '*') {
+    if (dayOfWeek == '1-5') return 'по будням';
+    if (dayOfWeek == '0,6' || dayOfWeek == '6,0' || dayOfWeek == '6,7') {
+      return 'по выходным';
+    }
+    final days = dayOfWeek.split(',');
+    if (days.any((d) => !_isNumber(d))) return null;
+    final names = days.map((d) => _weekDay(int.parse(d))).toList();
+    if (names.any((name) => name == null)) return null;
+    return 'по ${names.join(' и ')}';
+  }
+
+  if (!_isNumber(dayOfMonth)) return null;
+  return '$dayOfMonth-го числа';
+}
+
+/// Дательный падеж множественного числа: «по понедельникам».
+String? _weekDay(int day) => switch (day) {
+      0 || 7 => 'воскресеньям',
+      1 => 'понедельникам',
+      2 => 'вторникам',
+      3 => 'средам',
+      4 => 'четвергам',
+      5 => 'пятницам',
+      6 => 'субботам',
+      _ => null,
+    };
+
+bool _isNumber(String value) =>
+    value.isNotEmpty && int.tryParse(value) != null;
+
+String _two(int value) => value.toString().padLeft(2, '0');

@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../util/formatting.dart';
 import '../util/link_opener.dart';
 import '../widgets/badges.dart';
+import '../widgets/record_editor.dart';
 
 class VersionsScreen extends StatefulWidget {
   const VersionsScreen({super.key, required this.api});
@@ -56,6 +57,18 @@ class _VersionsScreenState extends State<VersionsScreen> {
     }
   }
 
+  /// Открывает карточку версии. [filter] задаёт, какие записи показать
+  /// сразу: плашки счётчиков ведут в свой перечень (все / новые / изменённые
+  /// / исключённые / требуют проверки / с правками).
+  Future<void> _openVersion(int id, {String filter = 'all'}) async {
+    final route = filter == 'all'
+        ? '/versions/$id'
+        : '/versions/$id?filter=$filter';
+    await Navigator.of(context).pushNamed(route);
+    // Пока смотрели версию, её могли подтвердить — обновляем список.
+    if (mounted) await _load();
+  }
+
   Future<void> _checkNow() async {
     setState(() => _checking = true);
     try {
@@ -84,6 +97,15 @@ class _VersionsScreenState extends State<VersionsScreen> {
               onPressed: () => Navigator.of(context).pushNamed('/events'),
               icon: const Icon(Icons.receipt_long),
               tooltip: 'Журнал событий',
+            ),
+            IconButton(
+              onPressed: () async {
+                await Navigator.of(context).pushNamed('/settings');
+                // Правка адреса могла изменить состояние службы — обновляем.
+                if (mounted) await _load();
+              },
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Настройки',
             ),
             IconButton(
               onPressed: _loading ? null : _load,
@@ -140,10 +162,7 @@ class _VersionsScreenState extends State<VersionsScreen> {
         return Card(
           margin: EdgeInsets.zero,
           child: InkWell(
-            onTap: () async {
-              await Navigator.of(context).pushNamed('/versions/${version.id}');
-              if (mounted) await _load();
-            },
+            onTap: () => _openVersion(version.id),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -167,11 +186,7 @@ class _VersionsScreenState extends State<VersionsScreen> {
                       ),
                       IconButton(
                         tooltip: 'Открыть версию',
-                        onPressed: () async {
-                          await Navigator.of(context)
-                              .pushNamed('/versions/${version.id}');
-                          if (mounted) await _load();
-                        },
+                        onPressed: () => _openVersion(version.id),
                         icon: const Icon(Icons.chevron_right),
                       ),
                     ],
@@ -200,7 +215,11 @@ class _VersionsScreenState extends State<VersionsScreen> {
                     ),
                   ],
                   const SizedBox(height: 10),
-                  CountersRow(counters: version.counters),
+                  CountersRow(
+                    counters: version.counters,
+                    onFilterSelected: (filter) =>
+                        _openVersion(version.id, filter: filter),
+                  ),
                 ],
               ),
             ),
@@ -216,73 +235,106 @@ class _HealthBar extends StatelessWidget {
 
   final HealthInfo health;
 
-  @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Wrap(
-          spacing: 24,
-          runSpacing: 6,
-          children: [
-            _healthItem(
-              context,
-              Icons.schedule,
-              'Последняя проверка',
-              '${formatMoscowDateTime(health.lastCheckAt)} '
-                  '(${health.lastCheckTitle})',
-            ),
-            _healthItem(
-              context,
-              Icons.update,
-              'Следующий запуск',
-              formatMoscowDateTime(health.nextRunAt),
-            ),
-            _healthItem(
-              context,
-              Icons.alarm,
-              'Расписание',
-              'проверка ${health.downloadCron}, '
-                  'авто-публикация ${health.autoPublishCron} '
-                  '(${health.timeZone})',
-            ),
-            _healthItem(
-              context,
-              Icons.folder_open,
-              'Папка CDI',
-              health.cdiDropDir,
-            ),
-          ],
-        ),
-      );
+  /// Полоса состояния набрана мельче остального интерфейса: иначе даты не
+  /// помещаются целиком, а они здесь главное.
+  static const _scale = 0.72;
 
-  Widget _healthItem(
-    BuildContext context,
-    IconData icon,
-    String label,
-    String value,
-  ) =>
-      ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16),
-            const SizedBox(width: 6),
-            Text('$label: ', style: const TextStyle(fontSize: 12)),
-            Flexible(
-              child: Text(
-                value,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
+  @override
+  Widget build(BuildContext context) {
+    final outer = MediaQuery.of(context);
+    return MediaQuery(
+      data: outer.copyWith(
+        textScaler: TextScaler.linear(outer.textScaler.scale(1) * _scale),
+      ),
+      child: Builder(
+        builder: (context) => Container(
+          width: double.infinity,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          // Одной строкой: даты показываются целиком, длинное расписание
+          // ужимается многоточием и всплывает при наведении. Папка выгрузки
+          // живёт на экране «Настройки», в шапке её не дублируем.
+          child: Row(
+            children: [
+              _healthItem(
+                context,
+                icon: Icons.schedule,
+                label: 'Последняя проверка',
+                value: '${formatMoscowDateTime(health.lastCheckAt)} '
+                    '(${health.lastCheckTitle})',
               ),
-            ),
-          ],
+              _healthItem(
+                context,
+                icon: Icons.update,
+                label: 'Следующий запуск',
+                value: formatMoscowDateTime(health.nextRunAt),
+              ),
+              _healthItem(
+                context,
+                flex: 1,
+                icon: Icons.alarm,
+                label: 'Расписание',
+                value: 'проверка ${cronTitle(health.downloadCron)}, '
+                    'авто-публикация ${cronTitle(health.autoPublishCron)} '
+                    '(${timeZoneTitle(health.timeZone)})',
+                last: true,
+              ),
+            ],
+          ),
         ),
-      );
+      ),
+    );
+  }
+
+  /// [flex] задан — показатель ужимается и получает подсказку; не задан —
+  /// занимает столько, сколько нужно (даты и время видны целиком).
+  Widget _healthItem(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required String value,
+    int? flex,
+    bool last = false,
+  }) {
+    final scale = MediaQuery.textScalerOf(context);
+    const labelStyle = TextStyle(fontSize: 12);
+    const valueStyle = TextStyle(fontSize: 12, fontWeight: FontWeight.w600);
+
+    final row = Row(
+      mainAxisSize: flex == null ? MainAxisSize.min : MainAxisSize.max,
+      children: [
+        Icon(icon, size: scale.scale(16)),
+        const SizedBox(width: 6),
+        if (flex == null)
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: '$label: ', style: labelStyle),
+                TextSpan(text: value, style: valueStyle),
+              ],
+            ),
+            maxLines: 1,
+          )
+        else
+          Flexible(
+            child: EllipsisCell.rich(
+              tooltipText: '$label: $value',
+              style: labelStyle,
+              spans: [
+                TextSpan(text: '$label: '),
+                TextSpan(text: value, style: valueStyle),
+              ],
+            ),
+          ),
+      ],
+    );
+
+    final padded = Padding(
+      padding: EdgeInsets.only(right: last ? 0 : 16),
+      child: row,
+    );
+    return flex == null ? padded : Flexible(flex: flex, child: padded);
+  }
 }
 
 class _ErrorView extends StatelessWidget {

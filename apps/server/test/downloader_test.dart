@@ -7,6 +7,8 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:perechen_server/src/config/app_config.dart';
+import 'package:perechen_server/src/config/runtime_settings.dart';
+import 'package:perechen_server/src/db/database.dart';
 import 'package:perechen_server/src/download/downloader.dart';
 import 'package:perechen_server/src/util/logging.dart';
 import 'package:test/test.dart';
@@ -29,6 +31,11 @@ void main() {
 
   Downloader build(AppConfig config, MockClient client) => Downloader(
         config: config,
+        settings: RuntimeSettings(
+          config: config,
+          db: AppDatabase.memory(),
+          logger: logger,
+        ),
         client: client,
         logger: logger,
         sleep: (delay) async => delays.add(delay),

@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:perechen_core/perechen_core.dart';
 
 import '../config/app_config.dart';
+import '../config/runtime_settings.dart';
 import '../db/database.dart';
 import '../util/logging.dart';
 import '../util/moscow_time.dart';
@@ -41,11 +42,16 @@ class PublishException implements Exception {
 class Publisher {
   Publisher({
     required this.config,
+    required this.settings,
     required this.db,
     AppLogger? logger,
   }) : _logger = logger ?? AppLogger();
 
   final AppConfig config;
+
+  /// Папка выгрузки: ответственный меняет её в UI.
+  final RuntimeSettings settings;
+
   final AppDatabase db;
   final AppLogger _logger;
 
@@ -132,13 +138,14 @@ class Publisher {
 
   /// Атомарная запись в папку CDI: временный файл рядом + rename.
   String _writeToCdi(CsvBuildResult csv) {
-    final directory = Directory(config.cdiDropDir);
+    final dropDir = settings.cdiDropDir;
+    final directory = Directory(dropDir);
     if (!directory.existsSync()) {
       try {
         directory.createSync(recursive: true);
       } catch (error) {
         throw PublishException(
-          'папка CDI недоступна (${config.cdiDropDir}): $error',
+          'папка CDI недоступна ($dropDir): $error',
         );
       }
     }

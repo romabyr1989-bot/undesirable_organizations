@@ -29,15 +29,6 @@ class VersionScreen extends StatefulWidget {
 }
 
 class _VersionScreenState extends State<VersionScreen> {
-  static const filters = <String, String>{
-    'all': 'все',
-    'new': 'новые',
-    'changed': 'изменённые',
-    'excluded': 'исключённые',
-    'review': 'требует проверки',
-    'edited': 'с правками',
-  };
-
   VersionSummary? _version;
   List<RecordItem> _records = const [];
   late String _filter = widget.initialFilter;
@@ -269,48 +260,40 @@ class _VersionScreenState extends State<VersionScreen> {
     );
   }
 
+  /// Панель над таблицей: плашки счётчиков (они же переключатель фильтра)
+  /// слева, поиск — у правого края. Отдельного ряда фильтров нет: он
+  /// дублировал плашки.
   Widget _toolbar(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            if (_version != null)
-              CountersRow(
-                counters: _version!.counters,
-                onFilterSelected: (filter) {
-                  setState(() => _filter = filter);
-                  _load();
-                },
-              ),
-            const SizedBox(height: 12),
-            // На узких экранах поиск переносится под фильтры.
-            Wrap(
-              spacing: 16,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                for (final entry in filters.entries)
-                  ChoiceChip(
-                    label: Text(entry.value),
-                    selected: _filter == entry.key,
-                    onSelected: (_) {
-                      setState(() => _filter = entry.key);
-                      _load();
-                    },
-                  ),
-                SizedBox(
-                  width: 320,
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: 'Поиск по наименованию и реквизитам',
-                      isDense: true,
-                      border: OutlineInputBorder(),
+            // Flexible, чтобы на узком окне плашки переносились, а не
+            // выдавливали поиск за край.
+            Flexible(
+              child: _version == null
+                  ? const SizedBox.shrink()
+                  : CountersRow(
+                      counters: _version!.counters,
+                      selectedFilter: _filter,
+                      onFilterSelected: (filter) {
+                        setState(() => _filter = filter);
+                        _load();
+                      },
                     ),
-                    onChanged: _onSearchChanged,
-                  ),
+            ),
+            const SizedBox(width: 16),
+            SizedBox(
+              // При увеличенном шрифте подсказка в 320 px не помещается.
+              width: 380,
+              child: TextField(
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Поиск по наименованию и реквизитам',
+                  isDense: true,
+                  border: OutlineInputBorder(),
                 ),
-              ],
+                onChanged: _onSearchChanged,
+              ),
             ),
           ],
         ),
@@ -326,12 +309,15 @@ class _VersionScreenState extends State<VersionScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          SizedBox(width: 56, child: Text('№ п/п', style: style)),
+          SizedBox(
+            width: tableGutter(context, 56),
+            child: Text('№ п/п', style: style),
+          ),
           Expanded(flex: 3, child: Text('Наименование (рус)', style: style)),
           Expanded(flex: 3, child: Text('Наименование (доп.)', style: style)),
           Expanded(flex: 2, child: Text('Страна', style: style)),
           Expanded(flex: 2, child: Text('Реквизиты', style: style)),
-          const SizedBox(width: 40),
+          SizedBox(width: tableGutter(context, 40)),
         ],
       ),
     );

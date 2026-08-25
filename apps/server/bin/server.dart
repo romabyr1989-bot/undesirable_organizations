@@ -14,6 +14,8 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:perechen_server/src/app.dart';
 import 'package:perechen_server/src/config/app_config.dart';
+import 'package:perechen_server/src/config/runtime_settings.dart';
+import 'package:perechen_server/src/db/database.dart';
 import 'package:perechen_server/src/db/sqlite_library.dart';
 import 'package:perechen_server/src/util/app_paths.dart';
 import 'package:perechen_server/src/util/logging.dart';
@@ -131,6 +133,10 @@ void _printPaths(AppConfig config) {
           ? 'нет'
           : 'есть';
 
+  // Правки из UI живут в БД и перекрывают конфигурацию — показываем то, что
+  // действительно используется. БД не создаём: до первого запуска её нет.
+  final effective = _EffectivePaths.read(config);
+
   final configFile = config.configFile.isEmpty
       ? 'не найден (только окружение)'
       : config.configFile;
@@ -148,8 +154,8 @@ void _printPaths(AppConfig config) {
     ..writeln('  файл БД:            ${config.databaseFile}')
     ..writeln('  скачанные файлы:    ${config.downloadsDir}')
     ..writeln('  опубликованные:     ${config.publishedDir}')
-    ..writeln('папка CDI:            ${config.cdiDropDir} '
-        '(${mark(config.cdiDropDir)})')
+    ..writeln('папка CDI:            ${effective.cdiDropDir} '
+        '(${mark(effective.cdiDropDir)})${effective.cdiNote}')
     ..writeln('справочник стран:     ${config.countriesFile} '
         '(${mark(config.countriesFile)})')
     ..writeln('веб-интерфейс:        ${config.uiDir} (${mark(config.uiDir)})')
@@ -162,5 +168,38 @@ void _printPaths(AppConfig config) {
     final state =
         SqliteLibrary.isBundled(candidate) ? ' (${mark(candidate)})' : '';
     stdout.writeln('  - $candidate$state');
+  }
+}
+
+
+/// Значения, перекрытые правками из UI (таблица `meta` в БД).
+class _EffectivePaths {
+  _EffectivePaths({required this.cdiDropDir, required this.overridden});
+
+  final String cdiDropDir;
+  final bool overridden;
+
+  String get cdiNote => overridden ? ', изменена в UI' : '';
+
+  static _EffectivePaths read(AppConfig config) {
+    if (!File(config.databaseFile).existsSync()) {
+      return _EffectivePaths(cdiDropDir: config.cdiDropDir, overridden: false);
+    }
+    try {
+      SqliteLibrary.ensureConfigured();
+      final db = AppDatabase.open(config.databaseFile);
+      try {
+        final value = db.meta(RuntimeSettings.cdiDropDirKey);
+        return _EffectivePaths(
+          cdiDropDir: value ?? config.cdiDropDir,
+          overridden: value != null,
+        );
+      } finally {
+        db.close();
+      }
+    } catch (_) {
+      // БД занята или несовместима — показываем значение из конфигурации
+      return _EffectivePaths(cdiDropDir: config.cdiDropDir, overridden: false);
+    }
   }
 }

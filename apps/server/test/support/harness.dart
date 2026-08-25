@@ -178,6 +178,7 @@ class TestHarness {
     required this.mail,
     required this.tempDir,
     required this.responses,
+    required this.requestedUrls,
   });
 
   final PerechenApp app;
@@ -188,11 +189,15 @@ class TestHarness {
   /// повторяется).
   final List<Object> responses;
 
+  /// Адреса, по которым сервис ходил на «сайт».
+  final List<String> requestedUrls;
+
   AppDatabase get db => app.db;
 
   AppConfig get config => app.config;
 
-  String get cdiDir => config.cdiDropDir;
+  /// Действующая папка CDI (правка из UI перекрывает конфигурацию).
+  String get cdiDir => app.settings.cdiDropDir;
 
   /// Создаёт обвязку. В [responses] кладут `Uint8List` (тело файла) либо
   /// `Exception`/код ошибки (`int`) для имитации сбоя.
@@ -204,8 +209,10 @@ class TestHarness {
   }) {
     final tempDir = Directory.systemTemp.createTempSync('perechen_test_');
     final queue = <Object>[...?responses];
+    final requestedUrls = <String>[];
 
     final client = MockClient((request) async {
+      requestedUrls.add(request.url.toString());
       if (queue.isEmpty) {
         return http.Response('not found', 404);
       }
@@ -255,6 +262,7 @@ class TestHarness {
       mail: mail,
       tempDir: tempDir,
       responses: queue,
+      requestedUrls: requestedUrls,
     );
   }
 

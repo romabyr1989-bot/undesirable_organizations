@@ -11,6 +11,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 
 import '../config/app_config.dart';
+import '../config/runtime_settings.dart';
 import '../db/database.dart';
 import '../scheduler/cron.dart';
 import '../service/publisher.dart';
@@ -21,6 +22,7 @@ import '../util/moscow_time.dart';
 class ApiServer {
   ApiServer({
     required this.config,
+    required this.settings,
     required this.db,
     required this.service,
     required this.publisher,
@@ -29,6 +31,10 @@ class ApiServer {
   }) : _logger = logger ?? AppLogger();
 
   final AppConfig config;
+
+  /// Настройки, которые ответственный меняет на экране «Настройки».
+  final RuntimeSettings settings;
+
   final AppDatabase db;
   final VersionService service;
   final Publisher publisher;
@@ -53,6 +59,8 @@ class ApiServer {
       ..post('/api/versions/<id|[0-9]+>/reparse', _reparse)
       ..patch('/api/records/<versionId|[0-9]+>/<orgKey|.+>', _patchRecord)
       ..post('/api/jobs/check-now', _checkNow)
+      ..get('/api/settings', _getSettings)
+      ..put('/api/settings', _putSettings)
       ..get('/api/events', _events)
       ..get('/api/corrections/<orgKey|.+>', _correctionHistory);
 
@@ -104,9 +112,9 @@ class ApiServer {
       'lastCheckAt': lastCheck == null ? null : MoscowTime.format(lastCheck),
       'lastCheckStatus': service.lastCheckStatus,
       'nextRunAt': nextRun == null ? null : MoscowTime.format(nextRun),
-      'downloadCron': config.downloadCron,
-      'autoPublishCron': config.autoPublishCron,
-      'cdiDropDir': config.cdiDropDir,
+      'downloadCron': settings.downloadCron,
+      'autoPublishCron': settings.autoPublishCron,
+      'cdiDropDir': settings.cdiDropDir,
       'latestVersionId': latest?.id,
       'latestActualityDate':
           latest == null ? null : MoscowTime.format(latest.actualityDate),
@@ -274,6 +282,38 @@ class ApiServer {
   String _actorOf(Request request) =>
       (request.context['user'] as String?) ?? 'anonymous';
 
+  /// Действующие настройки и то, что записано в конфигурации.
+  Response _getSettings(Request request) => _json(settings.toJson());
+
+  /// Правка настроек (экран «Настройки»).
+  ///
+  /// Тело: `{"minjustExportUrl": "https://...", "cdiDropDir": "/mnt/cdi"}`.
+  /// Поле со значением `null` — вернуть значение из конфигурации; поле,
+  /// которого нет в теле, не меняется.
+  Future<Response> _putSettings(Request request) async {
+    final body = await request.readAsString();
+    final Object? decoded = body.isEmpty ? <String, Object?>{} : jsonDecode(body);
+    if (decoded is! Map) {
+      return _error(
+        HttpStatus.badRequest,
+        'ожидается объект с настройками, например '
+        '{"minjustExportUrl": "https://minjust.gov.ru/.../export.xlsx"}',
+      );
+    }
+    final changes = <String, Object?>{
+      for (final entry in decoded.entries) '${entry.key}': entry.value,
+    };
+    try {
+      final updated = settings.update(changes, author: _actorOf(request));
+      return _json(updated);
+    } on SettingsException catch (error) {
+      return _json(
+        {'error': error.message, 'field': error.field},
+        status: HttpStatus.badRequest,
+      );
+    }
+  }
+
   Response _json(Object? payload, {int status = HttpStatus.ok}) => Response(
         status,
         body: jsonEncode(payload),
@@ -304,7 +344,7 @@ class ApiServer {
         final headers = <String, String>{
           if (origin != null) 'Access-Control-Allow-Origin': origin,
           'Access-Control-Allow-Credentials': 'true',
-          'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, OPTIONS',
           'Access-Control-Allow-Headers': 'Authorization, Content-Type',
         };
         if (request.method == 'OPTIONS') {

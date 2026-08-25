@@ -72,6 +72,7 @@ class EventType {
   static const versionConfirmed = 'version_confirmed';
   static const published = 'published';
   static const autoPublished = 'auto_published';
+  static const settingsChanged = 'settings_changed';
   static const emailSent = 'email_sent';
   static const emailFailed = 'email_failed';
   static const error = 'error';
@@ -216,6 +217,9 @@ class AppDatabase {
         'ON CONFLICT(key) DO UPDATE SET value = excluded.value;',
         [key, value],
       );
+
+  void deleteMeta(String key) =>
+      _db.execute('DELETE FROM meta WHERE key = ?;', [key]);
 
   // ------------------------------------------------------------ versions
 

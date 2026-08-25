@@ -6,8 +6,13 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'api/api_client.dart';
 import 'screens/events_screen.dart';
+import 'screens/settings_screen.dart';
 import 'screens/version_screen.dart';
 import 'screens/versions_screen.dart';
+
+/// Насколько крупнее показывать текст относительно базовых размеров.
+/// Умножается на системный масштаб, поэтому настройка ОС продолжает работать.
+const uiTextScale = 1.5;
 
 class PerechenApp extends StatelessWidget {
   const PerechenApp({super.key, required this.api});
@@ -30,6 +35,15 @@ class PerechenApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1857B6)),
           visualDensity: VisualDensity.compact,
         ),
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          return MediaQuery(
+            data: media.copyWith(
+              textScaler: TextScaler.linear(media.textScaler.scale(uiTextScale)),
+            ),
+            child: child!,
+          );
+        },
         onGenerateRoute: (settings) => generateRoute(settings, api),
       );
 
@@ -53,6 +67,12 @@ class PerechenApp extends StatelessWidget {
           ),
         );
       }
+    }
+    if (segments.isNotEmpty && segments.first == 'settings') {
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => SettingsScreen(api: api),
+      );
     }
     if (segments.isNotEmpty && segments.first == 'events') {
       return MaterialPageRoute<void>(

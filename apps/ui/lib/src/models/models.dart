@@ -320,6 +320,7 @@ class EventItem {
         'version_confirmed' => 'версия подтверждена',
         'published' => 'файл опубликован в CDI',
         'auto_published' => 'выполнена авто-публикация',
+        'settings_changed' => 'изменены настройки',
         'email_sent' => 'отправлено письмо',
         'email_failed' => 'письмо не отправлено',
         'error' => 'ошибка',
@@ -385,4 +386,90 @@ class CheckResultInfo {
         'error' => 'Ошибка проверки',
         _ => status,
       };
+}
+
+/// Одна настройка: что действует сейчас и что записано в конфигурации службы.
+class SettingValue {
+  const SettingValue({
+    this.value = '',
+    this.fromConfig = '',
+    this.overridden = false,
+  });
+
+  factory SettingValue.fromJson(Map<String, dynamic> json) => SettingValue(
+        value: json['value'] as String? ?? '',
+        fromConfig: json['fromConfig'] as String? ?? '',
+        overridden: json['overridden'] as bool? ?? false,
+      );
+
+  /// Действующее значение.
+  final String value;
+
+  /// Значение из `config.yaml` или переменной окружения.
+  final String fromConfig;
+
+  /// Значение изменено в интерфейсе и перекрывает конфигурацию.
+  final bool overridden;
+}
+
+/// Настройки, доступные ответственному на экране «Настройки».
+class AppSettings {
+  const AppSettings({
+    this.minjustExportUrl = const SettingValue(),
+    this.minjustPageUrl = const SettingValue(),
+    this.cdiDropDir = const SettingValue(),
+    this.downloadCron = const SettingValue(),
+    this.autoPublishCron = const SettingValue(),
+    this.timeZone = '',
+    this.updatedAt,
+    this.updatedBy,
+  });
+
+  factory AppSettings.fromJson(Map<String, dynamic> json) {
+    SettingValue read(String key) {
+      final raw = json[key];
+      return raw is Map
+          ? SettingValue.fromJson(raw.cast<String, dynamic>())
+          : const SettingValue();
+    }
+
+    return AppSettings(
+      minjustExportUrl: read('minjustExportUrl'),
+      minjustPageUrl: read('minjustPageUrl'),
+      cdiDropDir: read('cdiDropDir'),
+      downloadCron: read('downloadCron'),
+      autoPublishCron: read('autoPublishCron'),
+      timeZone: json['timeZone'] as String? ?? '',
+      updatedAt: json['updatedAt'] as String?,
+      updatedBy: json['updatedBy'] as String?,
+    );
+  }
+
+  /// Прямая ссылка на xlsx. Пустая — адрес ищется на странице перечня.
+  final SettingValue minjustExportUrl;
+
+  /// Страница перечня на сайте Минюста.
+  final SettingValue minjustPageUrl;
+
+  /// Папка, из которой скрипт загрузки забирает целевой CSV.
+  final SettingValue cdiDropDir;
+
+  /// Расписание ежедневной проверки сайта.
+  final SettingValue downloadCron;
+
+  /// Расписание авто-публикации неподтверждённой версии.
+  final SettingValue autoPublishCron;
+
+  /// Часовой пояс, в котором работают расписания.
+  final String timeZone;
+
+  final String? updatedAt;
+  final String? updatedBy;
+
+  bool get hasOverrides =>
+      minjustExportUrl.overridden ||
+      minjustPageUrl.overridden ||
+      cdiDropDir.overridden ||
+      downloadCron.overridden ||
+      autoPublishCron.overridden;
 }

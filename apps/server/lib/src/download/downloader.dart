@@ -9,6 +9,7 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
+import '../config/runtime_settings.dart';
 import '../util/logging.dart';
 
 class DownloadResult {
@@ -40,6 +41,7 @@ class DownloadException implements Exception {
 class Downloader {
   Downloader({
     required this.config,
+    required this.settings,
     http.Client? client,
     AppLogger? logger,
     Future<void> Function(Duration)? sleep,
@@ -48,6 +50,9 @@ class Downloader {
         _sleep = sleep ?? Future<void>.delayed;
 
   final AppConfig config;
+
+  /// Адреса первоисточника: ответственный меняет их в UI.
+  final RuntimeSettings settings;
   final http.Client _client;
   final AppLogger _logger;
   final Future<void> Function(Duration) _sleep;
@@ -110,9 +115,10 @@ class Downloader {
 
   /// Определяет URL файла экспорта: из конфига либо парсингом страницы (Р-5).
   Future<String> resolveExportUrl() async {
-    if (config.minjustExportUrl.isNotEmpty) return config.minjustExportUrl;
+    final exportUrl = settings.minjustExportUrl;
+    if (exportUrl.isNotEmpty) return exportUrl;
 
-    final pageUri = Uri.parse(config.minjustPageUrl);
+    final pageUri = Uri.parse(settings.minjustPageUrl);
     final response =
         await _client.get(pageUri, headers: _headers).timeout(config.httpTimeout);
     if (response.statusCode != 200) {

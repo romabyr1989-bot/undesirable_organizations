@@ -4,10 +4,14 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:perechen_ui/src/app.dart';
+import 'package:perechen_ui/src/api/api_client.dart';
+import 'package:perechen_ui/src/screens/settings_screen.dart';
 import 'package:perechen_ui/src/screens/version_screen.dart';
 import 'package:perechen_ui/src/screens/versions_screen.dart';
 import 'package:perechen_ui/src/util/formatting.dart';
+import 'package:perechen_ui/src/util/link_opener.dart';
 import 'package:perechen_ui/src/widgets/badges.dart';
+import 'package:perechen_ui/src/widgets/record_editor.dart';
 
 import 'support/fake_api.dart';
 
@@ -42,8 +46,34 @@ void main() {
         find.textContaining('Файл: perechen_organizatsij_272_FZ_2026_08_14'),
         findsOneWidget,
       );
-      expect(find.textContaining('0 6 * * *'), findsOneWidget);
+      expect(find.textContaining('проверка в 06:00'), findsOneWidget);
       expect(find.text('требуют проверки'), findsOneWidget);
+    });
+
+    testWidgets('полоса состояния: даты целиком, расписание — с подсказкой',
+        (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+
+      // Даты и время видны полностью, без многоточия. Ищем вместе с
+      // подписью: «Скачано: 14.08.2026 06:00» есть ещё и в карточке версии.
+      expect(
+        find.textContaining('Последняя проверка: 14.08.2026 06:00'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Следующий запуск: 15.08.2026 06:00'),
+        findsOneWidget,
+      );
+
+      // Папка выгрузки живёт на экране настроек, в шапке её нет.
+      expect(find.textContaining('Папка CDI'), findsNothing);
+      expect(find.textContaining('/mnt/cdi/inbox'), findsNothing);
+
+      // Расписание ужимается и показывается целиком при наведении.
+      expect(find.byType(EllipsisCell), findsOneWidget);
     });
 
     testWidgets('кнопка «Проверить сейчас» дёргает API', (tester) async {
@@ -57,6 +87,104 @@ void main() {
 
       expect(api.checkNowCalls, 1);
       expect(find.textContaining('Найдена новая версия'), findsOneWidget);
+    });
+
+    testWidgets('плашка счётчика открывает перечень с этим фильтром',
+        (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('требуют проверки'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VersionScreen), findsOneWidget);
+      expect(api.lastFilter, 'review');
+    });
+
+    testWidgets('плашка «всего» открывает перечень без фильтра',
+        (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('всего'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VersionScreen), findsOneWidget);
+      expect(api.lastFilter, 'all');
+    });
+
+    for (final (label, filter) in const [
+      ('новых', 'new'),
+      ('изменённых', 'changed'),
+    ]) {
+      testWidgets('плашка «$label» ведёт в перечень «$filter»',
+          (tester) async {
+        useDesktopSurface(tester);
+        final api = FakeApi();
+        await tester.pumpWidget(PerechenApp(api: api));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VersionScreen), findsOneWidget);
+        expect(api.lastFilter, filter);
+      });
+    }
+
+    testWidgets('плашка с нулём заблокирована', (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+
+      // В обвязке «исключённых» и «с правками» — по нулю.
+      final chip = tester.widget<CounterChip>(
+        find.widgetWithText(CounterChip, 'исключённых'),
+      );
+      expect(chip.enabled, isFalse);
+
+      await tester.tap(find.text('исключённых'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VersionScreen), findsNothing,
+          reason: 'по пустому перечню переходить некуда');
+      expect(find.byType(VersionsScreen), findsOneWidget);
+    });
+
+    testWidgets('плашки без подсказок при наведении', (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.ancestor(
+          of: find.text('требуют проверки'),
+          matching: find.byType(Tooltip),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('кнопка скачивания ведёт на целевой CSV версии',
+        (tester) async {
+      useDesktopSurface(tester);
+      openedLinks.clear();
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.download).first);
+      await tester.pumpAndSettle();
+
+      expect(openedLinks, [
+        'http://localhost/api/versions/1/export.csv',
+      ]);
     });
 
     testWidgets('переход на карточку версии', (tester) async {
@@ -94,10 +222,15 @@ void main() {
     testWidgets('ссылка из письма открывает фильтр «новые»', (tester) async {
       final api = await pumpVersion(tester, filter: 'new');
       expect(api.lastFilter, 'new');
-      final chip = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'новые'),
+      // Отдельного ряда фильтров нет: активный фильтр подсвечен на плашке.
+      final chip = tester.widget<CounterChip>(
+        find.widgetWithText(CounterChip, 'новых'),
       );
       expect(chip.selected, isTrue);
+      final all = tester.widget<CounterChip>(
+        find.widgetWithText(CounterChip, 'всего'),
+      );
+      expect(all.selected, isFalse);
     });
 
     testWidgets('таблица показывает разбор и бейджи', (tester) async {
@@ -125,6 +258,49 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('длинное наименование обрезается и всплывает целиком',
+        (tester) async {
+      const longName = 'Международная ассоциация содействия развитию '
+          'независимых исследований общественного мнения и права';
+      await pumpVersion(tester, records: [recordJson(nameRus: longName)]);
+
+      final cell = tester.widget<Text>(find.text(longName));
+      expect(cell.maxLines, 1);
+      expect(cell.overflow, TextOverflow.ellipsis);
+      expect(
+        find.ancestor(
+          of: find.text(longName),
+          matching: find.byType(Tooltip),
+        ),
+        findsOneWidget,
+        reason: 'обрезанное значение должно показываться при наведении',
+      );
+    });
+
+    testWidgets('короткое наименование подсказкой не сопровождается',
+        (tester) async {
+      const shortName = 'Фонд';
+      await pumpVersion(tester, records: [recordJson(nameRus: shortName)]);
+
+      expect(
+        find.ancestor(
+          of: find.text(shortName),
+          matching: find.byType(Tooltip),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('строка записи умещается в одну строку', (tester) async {
+      await pumpVersion(tester, records: [
+        recordJson(confidence: 'review', isNew: true),
+      ]);
+
+      // Бейджи стоят рядом с наименованием, а не отдельной строкой под ним.
+      final rowHeight = tester.getSize(find.byType(RecordRow).first).height;
+      expect(rowHeight, lessThan(80));
     });
 
     testWidgets('разворот строки показывает сырую строку и кандидатов',
@@ -256,12 +432,24 @@ void main() {
       expect(find.text('опубликована'), findsOneWidget);
     });
 
-    testWidgets('фильтр «требует проверки» перезапрашивает записи',
+    testWidgets('плашка «требуют проверки» перезапрашивает записи',
         (tester) async {
       final api = await pumpVersion(tester);
-      await tester.tap(find.widgetWithText(ChoiceChip, 'требует проверки'));
+      await tester.tap(find.widgetWithText(CounterChip, 'требуют проверки'));
       await tester.pumpAndSettle();
+
       expect(api.lastFilter, 'review');
+      final chip = tester.widget<CounterChip>(
+        find.widgetWithText(CounterChip, 'требуют проверки'),
+      );
+      expect(chip.selected, isTrue);
+    });
+
+    testWidgets('отдельного ряда фильтров больше нет', (tester) async {
+      await pumpVersion(tester);
+
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.byType(CounterChip), findsNWidgets(6));
     });
   });
 
@@ -304,6 +492,232 @@ void main() {
           'исключён транслит русского наименования');
       expect(noteTitle('unknown_note'), 'unknown_note');
     });
+
+    test('расписание cron человеческим языком', () {
+      expect(cronTitle('0 6 * * *'), 'в 06:00');
+      expect(cronTitle('30 20 * * *'), 'в 20:30');
+      expect(cronTitle('0 6,18 * * *'), 'в 06:00 и 18:00');
+      expect(cronTitle('0 6 * * 1-5'), 'по будням в 06:00');
+      expect(cronTitle('0 9 * * 0,6'), 'по выходным в 09:00');
+      expect(cronTitle('15 7 * * 1'), 'по понедельникам в 07:15');
+      expect(cronTitle('0 6 1 * *'), '1-го числа в 06:00');
+      expect(cronTitle('*/15 * * * *'), 'каждые 15 минут');
+      expect(cronTitle('0 */4 * * *'), 'каждые 4 часа');
+    });
+
+    test('неразобранное расписание показывается как есть', () {
+      // Лучше сырое выражение, чем неверное обещание про время запуска.
+      expect(cronTitle('0 6 * *'), '0 6 * *');
+      expect(cronTitle('0 6 15 1 3'), '0 6 15 1 3');
+      expect(cronTitle('чепуха'), 'чепуха');
+      expect(cronTitle('0 6 * 3 *'), '0 6 * 3 *');
+    });
+
+    test('часовой пояс', () {
+      expect(timeZoneTitle('Europe/Moscow'), 'МСК');
+      expect(timeZoneTitle('UTC'), 'UTC');
+    });
+  });
+
+  group('настройки', () {
+    // Поле ищем по подписи: значение может совпасть с подсказкой (hint),
+    // и тогда поиск по тексту находит один и тот же TextField дважды.
+    Finder fieldByLabel(String label) =>
+        find.widgetWithText(TextField, label);
+
+    String valueOf(WidgetTester tester, String label) =>
+        tester.widget<TextField>(fieldByLabel(label)).controller!.text;
+
+    Future<FakeApi> pumpSettings(
+      WidgetTester tester, {
+      Map<String, dynamic>? payload,
+    }) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      if (payload != null) api.settingsJson = payload;
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    testWidgets('пункт меню открывает экран настроек', (tester) async {
+      final api = await pumpSettings(tester);
+
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      expect(find.text('Настройки'), findsOneWidget);
+      expect(api.calls, contains('settings'));
+    });
+
+    testWidgets('показывает действующие адрес и папку', (tester) async {
+      await pumpSettings(tester);
+
+      expect(
+        valueOf(tester, 'Прямая ссылка на файл (xlsx)'),
+        'https://minjust.example/export.xlsx',
+      );
+      expect(valueOf(tester, 'Папка для целевого CSV'), '/mnt/cdi/inbox');
+      expect(
+        valueOf(tester, 'Страница перечня на сайте Минюста'),
+        'https://minjust.example/perechen/',
+      );
+    });
+
+    testWidgets('расписание правится и читается по-человечески',
+        (tester) async {
+      final api = await pumpSettings(tester);
+
+      expect(valueOf(tester, 'Проверка сайта'), '0 6 * * *');
+      expect(valueOf(tester, 'Авто-публикация'), '0 20 * * *');
+      expect(find.text('Запуск в 06:00'), findsOneWidget);
+      expect(find.text('Запуск в 20:00'), findsOneWidget);
+
+      await tester.enterText(fieldByLabel('Проверка сайта'), '30 7 * * 1-5');
+      await tester.pumpAndSettle();
+      expect(find.text('Запуск по будням в 07:30'), findsOneWidget);
+
+      await tester.tap(find.text('Сохранить'));
+      await tester.pumpAndSettle();
+
+      expect(api.lastSavedSettings, {'downloadCron': '30 7 * * 1-5'});
+    });
+
+    testWidgets('непонятное расписание подсвечивается сразу', (tester) async {
+      await pumpSettings(tester);
+
+      await tester.enterText(fieldByLabel('Проверка сайта'), 'каждое утро');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Выражение не распознано'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('правка адреса уходит на сервер', (tester) async {
+      final api = await pumpSettings(tester);
+
+      await tester.enterText(
+        fieldByLabel('Прямая ссылка на файл (xlsx)'),
+        'https://new.example/list.xlsx',
+      );
+      await tester.tap(find.text('Сохранить'));
+      await tester.pumpAndSettle();
+
+      expect(api.lastSavedSettings, {
+        'minjustExportUrl': 'https://new.example/list.xlsx',
+      });
+      expect(find.text('Настройки сохранены'), findsOneWidget);
+    });
+
+    testWidgets('правка папки выгрузки уходит на сервер', (tester) async {
+      final api = await pumpSettings(tester);
+
+      await tester.enterText(
+        fieldByLabel('Папка для целевого CSV'),
+        '/mnt/cdi/new-inbox',
+      );
+      await tester.tap(find.text('Сохранить'));
+      await tester.pumpAndSettle();
+
+      expect(api.lastSavedSettings, {'cdiDropDir': '/mnt/cdi/new-inbox'});
+    });
+
+    testWidgets('без изменений запрос не отправляется', (tester) async {
+      final api = await pumpSettings(tester);
+
+      await tester.tap(find.text('Сохранить'));
+      await tester.pumpAndSettle();
+
+      expect(api.calls, isNot(contains('saveSettings')));
+      expect(find.text('Изменений нет'), findsOneWidget);
+    });
+
+    testWidgets('ошибка проверки показывается у своего поля', (tester) async {
+      final api = await pumpSettings(tester);
+      api.settingsFailWith = ApiException(
+        400,
+        'адрес должен начинаться с http:// или https://',
+        field: 'minjustExportUrl',
+      );
+
+      await tester.enterText(
+        fieldByLabel('Прямая ссылка на файл (xlsx)'),
+        'minjust.example/list.xlsx',
+      );
+      await tester.tap(find.text('Сохранить'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('адрес должен начинаться с http:// или https://'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('изменённая настройка показывает значение из конфигурации',
+        (tester) async {
+      await pumpSettings(
+        tester,
+        payload: settingsPayload(
+          cdiDropDir: '/mnt/cdi/new-inbox',
+          cdiDropDirFromConfig: '/mnt/cdi/inbox',
+          cdiDropDirOverridden: true,
+          updatedAt: '2026-08-25T10:00:00+03:00',
+          updatedBy: 'admin',
+        ),
+      );
+
+      expect(
+        find.textContaining('В конфигурации службы: /mnt/cdi/inbox'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Последнее изменение: 25.08.2026 10:00'),
+        findsOneWidget,
+      );
+      expect(find.text('Вернуть из конфигурации'), findsOneWidget);
+    });
+
+    testWidgets('«Вернуть из конфигурации» отправляет сброс', (tester) async {
+      final api = await pumpSettings(
+        tester,
+        payload: settingsPayload(
+          cdiDropDir: '/mnt/cdi/new-inbox',
+          cdiDropDirFromConfig: '/mnt/cdi/inbox',
+          cdiDropDirOverridden: true,
+        ),
+      );
+
+      await tester.tap(find.text('Вернуть из конфигурации'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('снова будет действовать значение из'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Сохранить'));
+      await tester.pumpAndSettle();
+
+      expect(api.lastSavedSettings, {'cdiDropDir': null});
+    });
+
+    testWidgets('«Отменить изменения» возвращает поля к загруженным',
+        (tester) async {
+      final api = await pumpSettings(tester);
+
+      await tester.enterText(
+        fieldByLabel('Папка для целевого CSV'),
+        '/tmp/other',
+      );
+      await tester.tap(find.text('Отменить изменения'));
+      await tester.pumpAndSettle();
+
+      expect(valueOf(tester, 'Папка для целевого CSV'), '/mnt/cdi/inbox');
+      await tester.tap(find.text('Сохранить'));
+      await tester.pumpAndSettle();
+      expect(api.calls, isNot(contains('saveSettings')));
+    });
   });
 
   group('маршрутизация', () {
@@ -318,6 +732,19 @@ void main() {
       ));
       await tester.pumpAndSettle();
       expect(find.byType(VersionsScreen), findsOneWidget);
+    });
+
+    testWidgets('маршрут /settings открывает экран настроек', (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(MaterialApp(
+        onGenerateRoute: (settings) => PerechenApp.generateRoute(
+          const RouteSettings(name: '/settings'),
+          api,
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsScreen), findsOneWidget);
     });
   });
 }

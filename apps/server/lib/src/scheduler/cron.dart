@@ -118,7 +118,10 @@ class CronJob {
   });
 
   final String name;
-  final CronSchedule schedule;
+
+  /// Меняется на ходу: расписание правится в UI без перезапуска службы.
+  CronSchedule schedule;
+
   final Future<void> Function() action;
 
   DateTime? lastRunAt;
@@ -144,6 +147,18 @@ class CronScheduler {
   List<CronJob> get jobs => List.unmodifiable(_jobs);
 
   void addJob(CronJob job) => _jobs.add(job);
+
+  /// Меняет расписание задачи (правка настроек в UI).
+  ///
+  /// Возвращает `false`, если задачи с таким именем нет.
+  bool reschedule(String jobName, CronSchedule schedule) {
+    for (final job in _jobs) {
+      if (job.name != jobName) continue;
+      job.schedule = schedule;
+      return true;
+    }
+    return false;
+  }
 
   void start() {
     _timer ??= Timer.periodic(tick, (_) => runDue());

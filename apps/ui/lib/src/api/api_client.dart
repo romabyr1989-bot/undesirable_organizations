@@ -11,10 +11,13 @@ import 'package:http/http.dart' as http;
 import '../models/models.dart';
 
 class ApiException implements Exception {
-  ApiException(this.statusCode, this.message);
+  ApiException(this.statusCode, this.message, {this.field = ''});
 
   final int statusCode;
   final String message;
+
+  /// Настройка или поле, к которому относится ошибка (если сервер уточнил).
+  final String field;
 
   bool get isUnauthorized => statusCode == 401;
 
@@ -53,6 +56,15 @@ abstract class PerechenApi {
   Future<CheckResultInfo> checkNow();
 
   Future<List<EventItem>> events({int limit = 200});
+
+  /// Настройки: адреса первоисточника и папка выгрузки.
+  Future<AppSettings> settings();
+
+  /// Сохраняет настройки.
+  ///
+  /// Ключ со значением `null` возвращает значение из конфигурации службы;
+  /// ключа нет — настройка не меняется.
+  Future<AppSettings> saveSettings(Map<String, String?> changes);
 
   /// Ссылка на скачивание целевого CSV.
   Uri exportUri(int versionId);
@@ -147,6 +159,14 @@ class ApiClient implements PerechenApi {
         .toList();
   }
 
+  @override
+  Future<AppSettings> settings() async =>
+      AppSettings.fromJson(await _get('api/settings'));
+
+  @override
+  Future<AppSettings> saveSettings(Map<String, String?> changes) async =>
+      AppSettings.fromJson(await _put('api/settings', changes));
+
   Future<Map<String, dynamic>> _get(
     String path, {
     Map<String, String> query = const {},
@@ -159,6 +179,16 @@ class ApiClient implements PerechenApi {
 
   Future<Map<String, dynamic>> _post(String path) async =>
       _decode(await _client.post(baseUri.resolve(path), headers: _headers));
+
+  Future<Map<String, dynamic>> _put(
+    String path,
+    Map<String, Object?> body,
+  ) async =>
+      _decode(await _client.put(
+        baseUri.resolve(path),
+        headers: _headers,
+        body: jsonEncode(body),
+      ));
 
   Future<Map<String, dynamic>> _patch(
     String path,
@@ -179,12 +209,15 @@ class ApiClient implements PerechenApi {
     final body = utf8.decode(response.bodyBytes);
     if (response.statusCode >= 400) {
       String message = body;
+      String field = '';
       try {
-        message = '${(jsonDecode(body) as Map)['error'] ?? body}';
+        final payload = jsonDecode(body) as Map;
+        message = '${payload['error'] ?? body}';
+        field = '${payload['field'] ?? ''}';
       } catch (_) {
         // тело не json — показываем как есть
       }
-      throw ApiException(response.statusCode, message);
+      throw ApiException(response.statusCode, message, field: field);
     }
     if (body.isEmpty) return <String, dynamic>{};
     return (jsonDecode(body) as Map).cast<String, dynamic>();

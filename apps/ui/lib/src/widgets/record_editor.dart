@@ -7,6 +7,68 @@ import '../models/models.dart';
 import '../util/formatting.dart';
 import 'badges.dart';
 
+/// Ячейка таблицы в одну строку.
+///
+/// Значение обрезается многоточием, а если оно не поместилось — при наведении
+/// курсора показывается целиком.
+class EllipsisCell extends StatelessWidget {
+  const EllipsisCell(String this.text, {super.key, this.style})
+      : spans = null,
+        tooltipText = null;
+
+  /// Строка из нескольких стилей — например «Подпись: значение».
+  /// [tooltipText] показывается целиком, если строка не поместилась.
+  const EllipsisCell.rich({
+    super.key,
+    required List<InlineSpan> this.spans,
+    required String this.tooltipText,
+    this.style,
+  }) : text = null;
+
+  final String? text;
+  final TextStyle? style;
+  final List<InlineSpan>? spans;
+  final String? tooltipText;
+
+  /// Просвет до соседней колонки: без него обрезанное значение упирается
+  /// в текст справа.
+  static const gap = 12.0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (spans == null && text!.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final effective = style ?? DefaultTextStyle.of(context).style;
+        final span = spans == null
+            ? TextSpan(text: text, style: effective)
+            : TextSpan(children: spans, style: effective);
+        final painter = TextPainter(
+          text: span,
+          maxLines: 1,
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        )..layout(maxWidth: constraints.maxWidth - gap);
+
+        final cell = Padding(
+          padding: const EdgeInsets.only(right: gap),
+          child: Text.rich(
+            span,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+        if (!painter.didExceedMaxLines) return cell;
+        return Tooltip(
+          message: tooltipText ?? text!,
+          waitDuration: const Duration(milliseconds: 300),
+          child: cell,
+        );
+      },
+    );
+  }
+}
+
 class RecordRow extends StatelessWidget {
   const RecordRow({
     super.key,
@@ -26,6 +88,12 @@ class RecordRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasMarks = record.isNew ||
+        record.isChanged ||
+        record.needsReview ||
+        record.hasEdits ||
+        record.hasStale ||
+        record.isExcluded;
     final background = record.needsReview
         ? const Color(0xFFB3261E).withAlpha(12)
         : record.isNew
@@ -44,55 +112,56 @@ class RecordRow extends StatelessWidget {
             onTap: onToggle,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              // Строка записи — ровно одна строка: длинные значения
+              // обрезаются многоточием, бейджи стоят рядом с наименованием,
+              // а не под ним. Полные значения видны в развороте.
+              child: Row(
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 56,
-                        child: Text(record.value(RecordField.targetNo)),
-                      ),
-                      Expanded(
-                        flex: 3,
-                        child: Text(record.value(RecordField.nameRus)),
-                      ),
-                      Expanded(
-                        flex: 3,
-                        child: Text(record.value(RecordField.nameAdd)),
-                      ),
-                      Expanded(
-                        flex: 2,
-                        child: Text(record.value(RecordField.country)),
-                      ),
-                      Expanded(
-                        flex: 2,
-                        child: Text(
-                          record.value(RecordField.inclOrder),
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ),
-                      SizedBox(
-                        width: 40,
-                        child: Icon(
-                          expanded ? Icons.expand_less : Icons.expand_more,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (record.isNew ||
-                      record.isChanged ||
-                      record.needsReview ||
-                      record.hasEdits ||
-                      record.hasStale ||
-                      record.isExcluded) ...[
-                    const SizedBox(height: 6),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 56),
-                      child: RecordBadges(record: record),
+                  SizedBox(
+                    width: tableGutter(context, 56),
+                    child: Text(
+                      record.value(RecordField.targetNo),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ],
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: EllipsisCell(record.value(RecordField.nameRus)),
+                        ),
+                        if (hasMarks) ...[
+                          const SizedBox(width: 8),
+                          RecordBadges(record: record),
+                          // просвет до соседней колонки, как у EllipsisCell
+                          const SizedBox(width: EllipsisCell.gap),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: EllipsisCell(record.value(RecordField.nameAdd)),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: EllipsisCell(record.value(RecordField.country)),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: EllipsisCell(
+                      record.value(RecordField.inclOrder),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                  SizedBox(
+                    width: tableGutter(context, 40),
+                    child: Icon(
+                      expanded ? Icons.expand_less : Icons.expand_more,
+                    ),
+                  ),
                 ],
               ),
             ),

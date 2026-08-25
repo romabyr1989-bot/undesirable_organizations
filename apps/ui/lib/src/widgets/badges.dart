@@ -6,6 +6,13 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../util/formatting.dart';
 
+/// Ширина служебных колонок таблицы (№ п/п, стрелка разворота).
+///
+/// Растёт вместе с масштабом текста: при фиксированной ширине увеличенный
+/// шрифт наезжает на соседнюю колонку.
+double tableGutter(BuildContext context, double base) =>
+    MediaQuery.textScalerOf(context).scale(base);
+
 /// Цветной бейдж.
 class StatusBadge extends StatelessWidget {
   const StatusBadge({
@@ -124,6 +131,8 @@ class CounterChip extends StatelessWidget {
     required this.value,
     this.color,
     this.onTap,
+    this.selected = false,
+    this.gap = 0,
   });
 
   final String label;
@@ -131,21 +140,42 @@ class CounterChip extends StatelessWidget {
   final Color? color;
   final VoidCallback? onTap;
 
+  /// Плашка — активный фильтр перечня.
+  final bool selected;
+
+  /// Отступ справа: задаётся плашкой, а не `Wrap.spacing`, чтобы ширина
+  /// ряда правильно считалась внутри [IntrinsicWidth].
+  final double gap;
+
+  /// Плашка с нулём никуда не ведёт: перечень по ней всё равно пуст.
+  bool get enabled => value > 0 && onTap != null;
+
   @override
   Widget build(BuildContext context) {
-    final effective = color ?? Theme.of(context).colorScheme.primary;
-    return InkWell(
-      onTap: onTap,
+    final scheme = Theme.of(context).colorScheme;
+    final effective =
+        enabled ? color ?? scheme.primary : scheme.onSurfaceVariant;
+
+    final chip = InkWell(
+      onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: effective.withAlpha(20),
+          color: effective.withAlpha(selected ? 51 : 20),
           borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? effective : Colors.transparent,
+            width: 1.5,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (selected) ...[
+              Icon(Icons.check, size: 14, color: effective),
+              const SizedBox(width: 4),
+            ],
             Text(
               '$value',
               style: TextStyle(
@@ -155,10 +185,29 @@ class CounterChip extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
-            Text(label, style: const TextStyle(fontSize: 12)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                color: enabled ? null : scheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       ),
+    );
+    return Padding(
+      padding: EdgeInsets.only(right: gap),
+      // Заблокированная плашка съедает нажатие пустым обработчиком: без него
+      // клик достаётся карточке версии под ней и всё-таки открывает перечень.
+      child: enabled
+          ? chip
+          : GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {},
+              child: chip,
+            ),
     );
   }
 }
@@ -169,50 +218,69 @@ class CountersRow extends StatelessWidget {
     super.key,
     required this.counters,
     this.onFilterSelected,
+    this.selectedFilter,
   });
 
   final VersionCounters counters;
   final void Function(String filter)? onFilterSelected;
 
+  /// Активный фильтр перечня: плашки заменяют собой отдельный ряд фильтров.
+  final String? selectedFilter;
+
+  /// Отступ между плашками задан их собственным полем, а не `Wrap.spacing`:
+  /// `spacing` не входит в intrinsic width, и обёртка [IntrinsicWidth]
+  /// занижала бы ширину ряда.
+  static const _gap = 8.0;
+
   @override
   Widget build(BuildContext context) => Wrap(
-        spacing: 8,
-        runSpacing: 8,
+        runSpacing: _gap,
         children: [
           CounterChip(
             label: 'всего',
             value: counters.total,
             onTap: () => onFilterSelected?.call('all'),
+            gap: _gap,
+            selected: selectedFilter == 'all',
           ),
           CounterChip(
             label: 'новых',
             value: counters.added,
             color: const Color(0xFF1B7F3B),
             onTap: () => onFilterSelected?.call('new'),
+            gap: _gap,
+            selected: selectedFilter == 'new',
           ),
           CounterChip(
             label: 'изменённых',
             value: counters.changed,
             color: const Color(0xFF9A6A00),
             onTap: () => onFilterSelected?.call('changed'),
+            gap: _gap,
+            selected: selectedFilter == 'changed',
           ),
           CounterChip(
             label: 'исключённых',
             value: counters.excluded,
             color: const Color(0xFF7A7A7A),
             onTap: () => onFilterSelected?.call('excluded'),
+            gap: _gap,
+            selected: selectedFilter == 'excluded',
           ),
           CounterChip(
             label: 'требуют проверки',
             value: counters.review,
             color: const Color(0xFFB3261E),
             onTap: () => onFilterSelected?.call('review'),
+            gap: _gap,
+            selected: selectedFilter == 'review',
           ),
           CounterChip(
             label: 'с правками',
             value: counters.edited,
             color: const Color(0xFF1857B6),
             onTap: () => onFilterSelected?.call('edited'),
+            selected: selectedFilter == 'edited',
           ),
         ],
       );

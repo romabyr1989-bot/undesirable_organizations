@@ -10,6 +10,7 @@ import 'package:shelf/shelf_io.dart' as shelf_io;
 
 import 'api/api_router.dart';
 import 'config/app_config.dart';
+import 'config/runtime_settings.dart';
 import 'db/database.dart';
 import 'db/sqlite_library.dart';
 import 'download/downloader.dart';
@@ -22,9 +23,14 @@ import 'util/app_paths.dart';
 import 'util/logging.dart';
 import 'util/moscow_time.dart';
 
+/// Имена задач планировщика.
+const downloadJob = 'download';
+const autoPublishJob = 'auto-publish';
+
 class PerechenApp {
   PerechenApp({
     required this.config,
+    required this.settings,
     required this.db,
     required this.service,
     required this.publisher,
@@ -34,6 +40,10 @@ class PerechenApp {
   });
 
   final AppConfig config;
+
+  /// Настройки, изменяемые из UI (перекрывают [config]).
+  final RuntimeSettings settings;
+
   final AppDatabase db;
   final VersionService service;
   final Publisher publisher;
@@ -58,9 +68,15 @@ class PerechenApp {
     final appLogger = logger ?? AppLogger();
     final db = database ?? AppDatabase.open(config.databaseFile);
     final countries = loadCountries(config, appLogger);
+    final settings = RuntimeSettings(
+      config: config,
+      db: db,
+      logger: appLogger,
+    );
 
     final downloader = Downloader(
       config: config,
+      settings: settings,
       client: httpClient,
       logger: appLogger,
       sleep: sleep,
@@ -71,7 +87,12 @@ class PerechenApp {
       db: db,
       logger: appLogger,
     );
-    final publisher = Publisher(config: config, db: db, logger: appLogger);
+    final publisher = Publisher(
+      config: config,
+      settings: settings,
+      db: db,
+      logger: appLogger,
+    );
     final service = VersionService(
       config: config,
       db: db,
@@ -91,18 +112,34 @@ class PerechenApp {
       ),
     )
       ..addJob(CronJob(
-        name: 'download',
-        schedule: CronSchedule.parse(config.downloadCron),
+        name: downloadJob,
+        schedule: CronSchedule.parse(settings.downloadCron),
         action: () => service.checkNow(trigger: 'cron'),
       ))
       ..addJob(CronJob(
-        name: 'auto-publish',
-        schedule: CronSchedule.parse(config.autoPublishCron),
+        name: autoPublishJob,
+        schedule: CronSchedule.parse(settings.autoPublishCron),
         action: service.autoPublishPending,
       ));
 
+    // Расписание правится на экране «Настройки» — планировщик подхватывает
+    // новое время сразу, без перезапуска службы.
+    settings.onChanged = (current) {
+      scheduler
+        ..reschedule(downloadJob, CronSchedule.parse(current.downloadCron))
+        ..reschedule(
+          autoPublishJob,
+          CronSchedule.parse(current.autoPublishCron),
+        );
+      appLogger.info('расписание обновлено', {
+        'download': current.downloadCron,
+        'autoPublish': current.autoPublishCron,
+      });
+    };
+
     final api = ApiServer(
       config: config,
+      settings: settings,
       db: db,
       service: service,
       publisher: publisher,
@@ -112,6 +149,7 @@ class PerechenApp {
 
     return PerechenApp(
       config: config,
+      settings: settings,
       db: db,
       service: service,
       publisher: publisher,
@@ -164,9 +202,9 @@ class PerechenApp {
       'host': config.host,
       'port': config.port,
       'timeZone': MoscowTime.zoneName,
-      'downloadCron': config.downloadCron,
-      'autoPublishCron': config.autoPublishCron,
-      'cdiDropDir': config.cdiDropDir,
+      'downloadCron': settings.downloadCron,
+      'autoPublishCron': settings.autoPublishCron,
+      'cdiDropDir': settings.cdiDropDir,
       'ui': config.uiBaseUrl,
       // Что именно подхватилось на этой машине (установка без контейнера).
       'platform': Platform.operatingSystem,

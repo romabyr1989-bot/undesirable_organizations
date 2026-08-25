@@ -91,6 +91,52 @@ Map<String, dynamic> recordJson({
     };
 
 /// Подставной клиент API: запоминает вызовы и отдаёт заготовленные данные.
+/// Ответ `GET /api/settings`.
+Map<String, dynamic> settingsPayload({
+  String exportUrl = 'https://minjust.example/export.xlsx',
+  String exportUrlFromConfig = 'https://minjust.example/export.xlsx',
+  bool exportUrlOverridden = false,
+  String pageUrl = 'https://minjust.example/perechen/',
+  String cdiDropDir = '/mnt/cdi/inbox',
+  String cdiDropDirFromConfig = '/mnt/cdi/inbox',
+  bool cdiDropDirOverridden = false,
+  String downloadCron = '0 6 * * *',
+  String autoPublishCron = '0 20 * * *',
+  String timeZone = 'Europe/Moscow',
+  String? updatedAt,
+  String? updatedBy,
+}) =>
+    {
+      'minjustExportUrl': {
+        'value': exportUrl,
+        'fromConfig': exportUrlFromConfig,
+        'overridden': exportUrlOverridden,
+      },
+      'minjustPageUrl': {
+        'value': pageUrl,
+        'fromConfig': pageUrl,
+        'overridden': false,
+      },
+      'cdiDropDir': {
+        'value': cdiDropDir,
+        'fromConfig': cdiDropDirFromConfig,
+        'overridden': cdiDropDirOverridden,
+      },
+      'downloadCron': {
+        'value': downloadCron,
+        'fromConfig': '0 6 * * *',
+        'overridden': downloadCron != '0 6 * * *',
+      },
+      'autoPublishCron': {
+        'value': autoPublishCron,
+        'fromConfig': '0 20 * * *',
+        'overridden': autoPublishCron != '0 20 * * *',
+      },
+      'timeZone': timeZone,
+      'updatedAt': updatedAt,
+      'updatedBy': updatedBy,
+    };
+
 class FakeApi implements PerechenApi {
   FakeApi({
     List<Map<String, dynamic>>? versions,
@@ -114,6 +160,11 @@ class FakeApi implements PerechenApi {
   final Map<String, dynamic> _health;
 
   final List<String> calls = [];
+
+  /// Настройки, которые отдаёт фейк, и последняя сохранённая правка.
+  Map<String, dynamic> settingsJson = settingsPayload();
+  Map<String, String?> lastSavedSettings = const {};
+  ApiException? settingsFailWith;
   String lastFilter = '';
   String lastSearch = '';
   Map<String, String> lastSavedValues = const {};
@@ -243,6 +294,32 @@ class FakeApi implements PerechenApi {
         'versionId': null,
       }),
     ];
+  }
+
+  @override
+  Future<AppSettings> settings() async {
+    calls.add('settings');
+    return AppSettings.fromJson(settingsJson);
+  }
+
+  @override
+  Future<AppSettings> saveSettings(Map<String, String?> changes) async {
+    calls.add('saveSettings');
+    lastSavedSettings = changes;
+    if (settingsFailWith != null) throw settingsFailWith!;
+    final updated = Map<String, dynamic>.from(settingsJson);
+    for (final entry in changes.entries) {
+      final current = (updated[entry.key] as Map).cast<String, dynamic>();
+      updated[entry.key] = {
+        'value': entry.value ?? current['fromConfig'],
+        'fromConfig': current['fromConfig'],
+        'overridden': entry.value != null,
+      };
+    }
+    updated['updatedAt'] = '2026-08-25T10:00:00+03:00';
+    updated['updatedBy'] = 'admin';
+    settingsJson = updated;
+    return AppSettings.fromJson(updated);
   }
 
   @override
