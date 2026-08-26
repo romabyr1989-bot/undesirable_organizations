@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:perechen_ui/src/app.dart';
+import 'package:perechen_ui/src/models/models.dart';
 import 'package:perechen_ui/src/api/api_client.dart';
 import 'package:perechen_ui/src/screens/settings_screen.dart';
 import 'package:perechen_ui/src/screens/version_screen.dart';
@@ -35,7 +36,19 @@ void main() {
       await tester.pumpWidget(PerechenApp(api: api));
       await tester.pumpAndSettle();
 
-      expect(find.text('Перечень 272-ФЗ — версии'), findsOneWidget);
+      expect(
+        find.text('Перечень нежелательных организаций (272-ФЗ)'),
+        findsOneWidget,
+      );
+      // Логотип стоит в заголовке, а не в карточках версий.
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: find.byType(Image)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byType(Card), matching: find.byType(Image)),
+        findsNothing,
+      );
       expect(find.textContaining('Данные от 14.08.2026 17:28'), findsOneWidget);
       expect(find.text('ждёт проверки'), findsOneWidget);
       expect(
@@ -76,17 +89,44 @@ void main() {
       expect(find.byType(EllipsisCell), findsOneWidget);
     });
 
-    testWidgets('кнопка «Проверить сейчас» дёргает API', (tester) async {
+    testWidgets('кнопка в шапке запускает проверку сайта', (tester) async {
       useDesktopSurface(tester);
       final api = FakeApi();
       await tester.pumpWidget(PerechenApp(api: api));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Проверить сейчас'));
+      await tester.tap(find.byTooltip('Проверить сейчас'));
       await tester.pumpAndSettle();
 
       expect(api.checkNowCalls, 1);
       expect(find.textContaining('Найдена новая версия'), findsOneWidget);
+
+      // Отдельной кнопки «Проверить сейчас» больше нет: список обновляется
+      // сам, поэтому кнопка в шапке одна.
+      expect(find.widgetWithText(FilledButton, 'Проверить сейчас'), findsNothing);
+      expect(find.byTooltip('Обновить'), findsNothing);
+    });
+
+    testWidgets('список сам обновляется без действий пользователя',
+        (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+      final afterOpen = api.calls.where((c) => c == 'versions').length;
+
+      api.setVersions([versionJson(status: 'PUBLISHED')]);
+      await tester.pump(versionsAutoRefreshInterval);
+      await tester.pumpAndSettle();
+
+      expect(
+        api.calls.where((c) => c == 'versions').length,
+        greaterThan(afterOpen),
+      );
+      expect(find.text('опубликована'), findsOneWidget);
+
+      // Таймер снимается вместе с экраном, иначе тест не завершится.
+      await tester.pumpWidget(const SizedBox.shrink());
     });
 
     testWidgets('плашка счётчика открывает перечень с этим фильтром',
@@ -187,13 +227,15 @@ void main() {
       ]);
     });
 
-    testWidgets('переход на карточку версии', (tester) async {
+    testWidgets('нажатие по карточке открывает версию', (tester) async {
       useDesktopSurface(tester);
       final api = FakeApi();
       await tester.pumpWidget(PerechenApp(api: api));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.chevron_right).first);
+      // Отдельной кнопки-стрелки нет: открывает сама карточка.
+      expect(find.byIcon(Icons.chevron_right), findsNothing);
+      await tester.tap(find.textContaining('Данные от 14.08.2026'));
       await tester.pumpAndSettle();
 
       expect(find.byType(VersionScreen), findsOneWidget);
@@ -467,6 +509,29 @@ void main() {
       expect(find.text('создана версия'), findsOneWidget);
       expect(find.text('файл не скачался'), findsOneWidget);
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
+
+      // Таблица со столбцами.
+      for (final column in ['Время', 'Событие', 'Версия', 'Подробности']) {
+        expect(find.text(column), findsOneWidget, reason: column);
+      }
+      expect(find.text('1'), findsOneWidget, reason: 'номер версии');
+      expect(find.text('—'), findsOneWidget, reason: 'событие без версии');
+    });
+
+    testWidgets('строки журнала никуда не ведут', (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.receipt_long));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('создана версия'));
+      await tester.pumpAndSettle();
+
+      // Журнал — отчёт, а не навигация: остаёмся на том же экране.
+      expect(find.byType(VersionScreen), findsNothing);
+      expect(find.text('Журнал событий'), findsOneWidget);
     });
   });
 
@@ -490,6 +555,14 @@ void main() {
     test('человеческие описания пометок разбора', () {
       expect(noteTitle('translit_dropped'),
           'исключён транслит русского наименования');
+      expect(
+        noteTitle('homoglyph_fixed'),
+        'буква была набрана не тем алфавитом — исправлено',
+      );
+      expect(
+        noteTitle('char_not_in_cp1251'),
+        'символ не переносится в целевой файл — исправьте вручную',
+      );
       expect(noteTitle('unknown_note'), 'unknown_note');
     });
 
@@ -511,6 +584,105 @@ void main() {
       expect(cronTitle('0 6 15 1 3'), '0 6 15 1 3');
       expect(cronTitle('чепуха'), 'чепуха');
       expect(cronTitle('0 6 * 3 *'), '0 6 * 3 *');
+    });
+
+    test('уведомление о проверке не повторяет само себя', () {
+      // Сервер шлёт и статус, и сообщение — у «новой версии нет» они
+      // совпадают, и в подсказке получалось «Новой версии нет. новой версии
+      // нет».
+      final same = CheckResultInfo.fromJson({
+        'status': 'noChange',
+        'message': 'новой версии нет',
+        'versionId': 1,
+      });
+      expect(same.summary, 'Новой версии нет');
+
+      final detailed = CheckResultInfo.fromJson({
+        'status': 'error',
+        'message': 'сайт не ответил за 60 с',
+        'versionId': null,
+      });
+      expect(detailed.summary, 'Ошибка проверки. сайт не ответил за 60 с');
+
+      final empty = CheckResultInfo.fromJson({
+        'status': 'newVersion',
+        'message': '',
+        'versionId': 2,
+      });
+      expect(empty.summary, 'Найдена новая версия');
+    });
+
+    test('журнал событий читается без JSON', () {
+      expect(
+        eventDetails('check_started', {'trigger': 'cron'}),
+        'запуск по расписанию',
+      );
+      expect(
+        eventDetails('download_ok', {'bytes': 43079, 'attempts': 1}),
+        'получено 42 КБ',
+      );
+      expect(
+        eventDetails('download_ok', {'bytes': 43079, 'attempts': 3}),
+        'получено 42 КБ, попыток: 3',
+      );
+      expect(
+        eventDetails('version_created', {
+          'actualityDate': '2026-08-14T17:28:00+03:00',
+          'counters': {'total': 390, 'new': 2, 'excluded': 0, 'review': 21},
+        }),
+        'данные от 14.08.2026 17:28 · 390 записей · новых: 2 · '
+        'требуют проверки: 21',
+      );
+      expect(
+        eventDetails('no_new_version', {
+          'actualityDate': '2026-08-14T17:28:00+03:00',
+        }),
+        'дата актуальности прежняя: 14.08.2026',
+      );
+      expect(
+        eventDetails('correction_saved', {
+          'orgKey': '260-р__2025-03-03',
+          'fields': ['name_add'],
+          'author': 'admin',
+        }),
+        'наименование (доп.) · автор: admin',
+      );
+      expect(
+        eventDetails('settings_changed', {
+          'author': 'admin',
+          'changed': ['downloadCron', 'cdiDropDir'],
+        }),
+        'расписание проверки, папка выгрузки · автор: admin',
+      );
+      expect(
+        eventDetails('published', {
+          'fileName': 'perechen_organizatsij_272_FZ_2026_08_14.csv',
+          'rows': 390,
+          'cdiPath': '/mnt/cdi/inbox/perechen.csv',
+        }),
+        'perechen_organizatsij_272_FZ_2026_08_14.csv · 390 строк',
+      );
+      expect(
+        eventDetails('email_sent', {
+          'kind': 'new_version',
+          'subject': 'Перечень 272-ФЗ: новая версия',
+          'to': ['a@corp.example', 'b@corp.example'],
+        }),
+        'Перечень 272-ФЗ: новая версия → a@corp.example, b@corp.example',
+      );
+    });
+
+    test('неизвестное событие показывается парами, а не JSON', () {
+      expect(
+        eventDetails('что-то новое', {'stage': 'x', 'count': 2}),
+        'stage: x · count: 2',
+      );
+      // Пустая нагрузка — пустая строка, а не «подтвердил: ».
+      expect(eventDetails('version_confirmed', const {}), '');
+      expect(
+        eventDetails('version_confirmed', const {'actor': 'admin'}),
+        'подтвердил: admin',
+      );
     });
 
     test('часовой пояс', () {
@@ -554,28 +726,26 @@ void main() {
       await pumpSettings(tester);
 
       expect(
-        valueOf(tester, 'Прямая ссылка на файл (xlsx)'),
-        'https://minjust.example/export.xlsx',
-      );
-      expect(valueOf(tester, 'Папка для целевого CSV'), '/mnt/cdi/inbox');
-      expect(
         valueOf(tester, 'Страница перечня на сайте Минюста'),
         'https://minjust.example/perechen/',
       );
+      expect(valueOf(tester, 'Папка для целевого CSV'), '/mnt/cdi/inbox');
+
+      // Прямая ссылка на файл правится только в конфигурации службы.
+      expect(find.text('Прямая ссылка на файл (xlsx)'), findsNothing);
+      // Пояснений и подсказок в форме нет — только подписи полей.
+      expect(find.textContaining('Откуда служба забирает'), findsNothing);
+      expect(find.textContaining('Запуск в'), findsNothing);
     });
 
-    testWidgets('расписание правится и читается по-человечески',
-        (tester) async {
+    testWidgets('расписание правится', (tester) async {
       final api = await pumpSettings(tester);
 
       expect(valueOf(tester, 'Проверка сайта'), '0 6 * * *');
       expect(valueOf(tester, 'Авто-публикация'), '0 20 * * *');
-      expect(find.text('Запуск в 06:00'), findsOneWidget);
-      expect(find.text('Запуск в 20:00'), findsOneWidget);
 
       await tester.enterText(fieldByLabel('Проверка сайта'), '30 7 * * 1-5');
       await tester.pumpAndSettle();
-      expect(find.text('Запуск по будням в 07:30'), findsOneWidget);
 
       await tester.tap(find.text('Сохранить'));
       await tester.pumpAndSettle();
@@ -583,30 +753,18 @@ void main() {
       expect(api.lastSavedSettings, {'downloadCron': '30 7 * * 1-5'});
     });
 
-    testWidgets('непонятное расписание подсвечивается сразу', (tester) async {
-      await pumpSettings(tester);
-
-      await tester.enterText(fieldByLabel('Проверка сайта'), 'каждое утро');
-      await tester.pumpAndSettle();
-
-      expect(
-        find.textContaining('Выражение не распознано'),
-        findsOneWidget,
-      );
-    });
-
     testWidgets('правка адреса уходит на сервер', (tester) async {
       final api = await pumpSettings(tester);
 
       await tester.enterText(
-        fieldByLabel('Прямая ссылка на файл (xlsx)'),
-        'https://new.example/list.xlsx',
+        fieldByLabel('Страница перечня на сайте Минюста'),
+        'https://new.example/perechen/',
       );
       await tester.tap(find.text('Сохранить'));
       await tester.pumpAndSettle();
 
       expect(api.lastSavedSettings, {
-        'minjustExportUrl': 'https://new.example/list.xlsx',
+        'minjustPageUrl': 'https://new.example/perechen/',
       });
       expect(find.text('Настройки сохранены'), findsOneWidget);
     });
@@ -639,12 +797,12 @@ void main() {
       api.settingsFailWith = ApiException(
         400,
         'адрес должен начинаться с http:// или https://',
-        field: 'minjustExportUrl',
+        field: 'minjustPageUrl',
       );
 
       await tester.enterText(
-        fieldByLabel('Прямая ссылка на файл (xlsx)'),
-        'minjust.example/list.xlsx',
+        fieldByLabel('Страница перечня на сайте Минюста'),
+        'minjust.example/perechen/',
       );
       await tester.tap(find.text('Сохранить'));
       await tester.pumpAndSettle();

@@ -1,6 +1,8 @@
 /// Форматирование значений для интерфейса.
 library;
 
+import '../models/models.dart';
+
 /// `2026-08-14T17:28:00+03:00` -> `14.08.2026 17:28`.
 String formatMoscowDateTime(String? value) {
   if (value == null || value.isEmpty) return '—';
@@ -37,6 +39,10 @@ String noteTitle(String note) => switch (note) {
       'abbreviation_dropped' => 'исключена аббревиатура',
       'other_script_dropped' => 'исключён фрагмент на ином алфавите',
       'other_script_only' => 'наименование только на ином алфавите',
+      'homoglyph_fixed' =>
+        'буква была набрана не тем алфавитом — исправлено',
+      'char_not_in_cp1251' =>
+        'символ не переносится в целевой файл — исправьте вручную',
       'ambiguous_length' => 'несколько равнозначных кандидатов',
       'country_not_found' => 'похоже на страну, но её нет в справочнике',
       'country_missing' => 'страна в наименовании не указана',
@@ -135,3 +141,133 @@ bool _isNumber(String value) =>
     value.isNotEmpty && int.tryParse(value) != null;
 
 String _two(int value) => value.toString().padLeft(2, '0');
+
+/// Человеческое описание события журнала.
+///
+/// Сервер хранит машиночитаемую нагрузку (адреса, хэши, коды полей) — в
+/// журнале ответственный должен видеть фразу, а не JSON.
+String eventDetails(String type, Map<String, dynamic> payload) {
+  String text(String key) => '${payload[key] ?? ''}'.trim();
+  List<String> list(String key) =>
+      (payload[key] as List?)?.map((e) => '$e').toList() ?? const [];
+
+  switch (type) {
+    case 'check_started':
+      return 'запуск ${_triggerTitle(text('trigger'))}';
+
+    case 'download_ok':
+      final attempts = payload['attempts'] as int? ?? 1;
+      final size = _fileSize(payload['bytes']);
+      return attempts > 1
+          ? 'получено $size, попыток: $attempts'
+          : 'получено $size';
+
+    case 'download_failed':
+      final streak = payload['streak'] as int? ?? 1;
+      final reason = text('error');
+      return streak > 1
+          ? '$reason; неудачных проверок подряд: $streak'
+          : reason;
+
+    case 'parse_failed':
+      return text('error');
+
+    case 'version_created':
+      final counters = (payload['counters'] as Map?)?.cast<String, dynamic>();
+      final total = counters?['total'] as int? ?? 0;
+      final review = counters?['review'] as int? ?? 0;
+      final added = counters?['new'] as int? ?? 0;
+      final excluded = counters?['excluded'] as int? ?? 0;
+      final parts = <String>[
+        'данные от ${formatMoscowDateTime(text('actualityDate'))}',
+        plural(total, 'запись', 'записи', 'записей'),
+        if (added > 0) 'новых: $added',
+        if (excluded > 0) 'исключено: $excluded',
+        if (review > 0) 'требуют проверки: $review',
+      ];
+      return parts.join(' · ');
+
+    case 'no_new_version':
+      return 'дата актуальности прежняя: '
+          '${formatMoscowDate(text('actualityDate'))}';
+
+    case 'content_changed_same_date':
+      return 'дата актуальности прежняя '
+          '(${formatMoscowDate(text('actualityDate'))}), '
+          'содержимое файла другое';
+
+    case 'correction_saved':
+    case 'correction_reverted':
+      final fields = list('fields').map(_fieldTitle).join(', ');
+      final author = text('author');
+      return [
+        if (fields.isNotEmpty) fields,
+        if (author.isNotEmpty) 'автор: $author',
+      ].join(' · ');
+
+    case 'version_confirmed':
+      final actor = text('actor');
+      return actor.isEmpty ? '' : 'подтвердил: $actor';
+
+    case 'published':
+    case 'auto_published':
+      final rows = payload['rows'] as int? ?? 0;
+      return '${text('fileName')} · '
+          '${plural(rows, 'строка', 'строки', 'строк')}';
+
+    case 'email_sent':
+      final to = list('to').join(', ');
+      final subject = text('subject');
+      return to.isEmpty ? subject : '$subject → $to';
+
+    case 'email_failed':
+      return '${text('subject')}: ${text('error')}';
+
+    case 'settings_changed':
+      final changed = list('changed').map(_settingTitle).join(', ');
+      final author = text('author');
+      return [
+        if (changed.isNotEmpty) changed,
+        if (author.isNotEmpty) 'автор: $author',
+      ].join(' · ');
+
+    case 'error':
+      final stage = text('stage');
+      final error = text('error');
+      return stage.isEmpty ? error : '$stage: $error';
+
+    default:
+      // Неизвестное событие: показываем пары «ключ: значение», но не JSON.
+      return payload.entries
+          .map((e) => '${e.key}: ${e.value}')
+          .join(' · ');
+  }
+}
+
+String _triggerTitle(String trigger) => switch (trigger) {
+      'cron' => 'по расписанию',
+      'manual' || 'ui' => 'вручную из интерфейса',
+      'cli' => 'из командной строки',
+      '' => 'без указания источника',
+      _ => trigger,
+    };
+
+String _fieldTitle(String id) =>
+    RecordField.byId(id)?.title.toLowerCase() ?? id;
+
+String _settingTitle(String id) => switch (id) {
+      'minjustExportUrl' => 'прямая ссылка на файл',
+      'minjustPageUrl' => 'страница перечня',
+      'cdiDropDir' => 'папка выгрузки',
+      'downloadCron' => 'расписание проверки',
+      'autoPublishCron' => 'расписание авто-публикации',
+      _ => id,
+    };
+
+/// `43079` -> `42 КБ`.
+String _fileSize(Object? bytes) {
+  final value = bytes is num ? bytes.toDouble() : 0.0;
+  if (value < 1024) return '${value.round()} Б';
+  if (value < 1024 * 1024) return '${(value / 1024).round()} КБ';
+  return '${(value / (1024 * 1024)).toStringAsFixed(1)} МБ';
+}

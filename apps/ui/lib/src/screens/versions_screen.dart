@@ -1,6 +1,8 @@
 /// Экран 1. Версии (п. 10 ТЗ).
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
@@ -9,6 +11,13 @@ import '../util/formatting.dart';
 import '../util/link_opener.dart';
 import '../widgets/badges.dart';
 import '../widgets/record_editor.dart';
+
+/// Как часто экран списка версий сам перечитывает состояние службы.
+///
+/// Сервер ничего в браузер не шлёт, а данные меняются без участия
+/// смотрящего: проверка сайта по расписанию, авто-публикация, действия
+/// другого ответственного.
+const versionsAutoRefreshInterval = Duration(seconds: 30);
 
 class VersionsScreen extends StatefulWidget {
   const VersionsScreen({super.key, required this.api});
@@ -25,18 +34,34 @@ class _VersionsScreenState extends State<VersionsScreen> {
   bool _loading = true;
   bool _checking = false;
   String? _error;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _autoRefresh = Timer.periodic(
+      versionsAutoRefreshInterval,
+      (_) => _load(silent: true),
+    );
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  @override
+  void dispose() {
+    _autoRefresh?.cancel();
+    super.dispose();
+  }
+
+  /// [silent] — фоновое обновление: без крутилки на весь экран и без
+  /// затирания уже показанных данных, если сеть подвела.
+  Future<void> _load({bool silent = false}) async {
+    if (silent && (_loading || _checking)) return;
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final versions = await widget.api.versions();
       final health = await widget.api.health();
@@ -48,6 +73,9 @@ class _VersionsScreenState extends State<VersionsScreen> {
       });
     } on ApiException catch (error) {
       if (!mounted) return;
+      // Сбой фонового обновления не должен подменять экран сообщением:
+      // показанные данные всё ещё верны, следующая попытка через полминуты.
+      if (silent) return;
       setState(() {
         _error = error.isUnauthorized
             ? 'Нет доступа: проверьте логин и пароль.'
@@ -75,7 +103,7 @@ class _VersionsScreenState extends State<VersionsScreen> {
       final result = await widget.api.checkNow();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${result.title}. ${result.message}')),
+        SnackBar(content: Text(result.summary)),
       );
       await _load();
     } on ApiException catch (error) {
@@ -88,10 +116,41 @@ class _VersionsScreenState extends State<VersionsScreen> {
     }
   }
 
+  /// Логотип рядом с названием. Размер привязан к масштабу текста, чтобы не
+  /// отставать от заголовка.
+  Widget _logo(BuildContext context) {
+    final side = MediaQuery.textScalerOf(context).scale(26);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(side / 5),
+      child: Image.asset(
+        // Ассеты собираются только из каталога пакета, поэтому картинка
+        // лежит в apps/ui/assets, а не в apps/data.
+        'assets/images/logo.png',
+        width: side,
+        height: side,
+        fit: BoxFit.cover,
+        // Файла может не оказаться в сборке — заголовок из-за этого падать
+        // не должен.
+        errorBuilder: (context, error, stackTrace) => Icon(
+          Icons.broken_image_outlined,
+          size: side,
+          color: Theme.of(context).colorScheme.outline,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: const Text('Перечень 272-ФЗ — версии'),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Перечень нежелательных организаций (272-ФЗ)'),
+              const SizedBox(width: 12),
+              _logo(context),
+            ],
+          ),
           actions: [
             IconButton(
               onPressed: () => Navigator.of(context).pushNamed('/events'),
@@ -107,24 +166,20 @@ class _VersionsScreenState extends State<VersionsScreen> {
               icon: const Icon(Icons.settings_outlined),
               tooltip: 'Настройки',
             ),
+            // Список сам обновляется раз в полминуты, поэтому кнопка нужна
+            // не для перечитывания экрана, а для внеочередной проверки сайта.
             IconButton(
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Обновить',
-            ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: _checking ? null : _checkNow,
+              onPressed: _checking || _loading ? null : _checkNow,
               icon: _checking
                   ? const SizedBox(
-                      width: 16,
-                      height: 16,
+                      width: 20,
+                      height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.cloud_download),
-              label: const Text('Проверить сейчас'),
+                  : const Icon(Icons.refresh),
+              tooltip: 'Проверить сейчас',
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
           ],
         ),
         body: _loading
@@ -139,7 +194,7 @@ class _VersionsScreenState extends State<VersionsScreen> {
                     ],
                   ),
       );
-
+  
   Widget _versionsTable(BuildContext context) {
     if (_versions.isEmpty) {
       return const Center(
@@ -161,6 +216,8 @@ class _VersionsScreenState extends State<VersionsScreen> {
         final version = _versions[index];
         return Card(
           margin: EdgeInsets.zero,
+          // Отдельной кнопки «Открыть версию» нет: карточка открывается
+          // нажатием в любом месте, кроме плашек счётчиков и кнопки скачивания.
           child: InkWell(
             onTap: () => _openVersion(version.id),
             child: Padding(
@@ -184,11 +241,7 @@ class _VersionsScreenState extends State<VersionsScreen> {
                         ),
                         icon: const Icon(Icons.download),
                       ),
-                      IconButton(
-                        tooltip: 'Открыть версию',
-                        onPressed: () => _openVersion(version.id),
-                        icon: const Icon(Icons.chevron_right),
-                      ),
+
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -220,6 +273,7 @@ class _VersionsScreenState extends State<VersionsScreen> {
                     onFilterSelected: (filter) =>
                         _openVersion(version.id, filter: filter),
                   ),
+
                 ],
               ),
             ),

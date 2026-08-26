@@ -13,6 +13,128 @@ void main() {
     mapper = RecordMapper(nameParser: buildNameParser());
   });
 
+  group('буквы не того алфавита', () {
+    test('латинская «i» в кириллическом слове исправляется', () {
+      final record = mapper.map(sourceRow(
+        rawName: 'Духовне Управлiння Євангельських Християн '
+            '(«Духовное управление») (Украина)',
+      ));
+
+      // Наименование целиком кириллическое, поэтому попадает в «рус».
+      expect(record.value(RecordField.nameRus), contains('Управління'));
+      expect(record.notes, contains(ParseNote.homoglyphFixed));
+    });
+
+    test('кириллическая «е» в латинском слове исправляется', () {
+      final record = mapper.map(sourceRow(
+        rawName: 'Transpar\u0435ncy International '
+            '(«Трансперенси Интернешнл») (Германия)',
+      ));
+
+      expect(record.value(RecordField.nameAdd), 'Transparency International');
+      expect(record.notes, contains(ParseNote.homoglyphFixed));
+    });
+
+    test('осознанно двуязычное название не трогаем', () {
+      final record = mapper.map(sourceRow(
+        rawName: 'КрымSOS («КрымSOS») (Украина)',
+      ));
+
+      expect(record.notes, isNot(contains(ParseNote.homoglyphFixed)));
+      expect(
+        '${record.value(RecordField.nameRus)}'
+        '${record.value(RecordField.nameAdd)}',
+        contains('КрымSOS'),
+      );
+    });
+
+    test('чистое наименование остаётся без пометки', () {
+      final record = mapper.map(sourceRow(
+        rawName: 'Open Society Foundation («Фонд Открытое общество») (США)',
+      ));
+
+      expect(record.notes, isNot(contains(ParseNote.homoglyphFixed)));
+    });
+  });
+
+  group('символы вне cp1251', () {
+    test('символ без аналога отправляет запись на проверку', () {
+      // В первоисточнике Минюста вместо «ç» стоит символ из области
+      // частного использования — в целевом файле он стал бы «?».
+      final record = mapper.map(sourceRow(
+        rawName: 'Associa\u{F50D}ao de russos livres '
+            '(«Ассоциация свободных россиян») (Португальская Республика)',
+      ));
+
+      expect(record.confidence, Confidence.review);
+      expect(record.notes, contains(ParseNote.charNotInCp1251));
+    });
+
+    test('символ с аналогом переносится молча', () {
+      final record = mapper.map(sourceRow(
+        rawName: 'Associação de russos livres '
+            '(«Ассоциация свободных россиян») (Португальская Республика)',
+      ));
+
+      expect(record.notes, isNot(contains(ParseNote.charNotInCp1251)));
+      expect(record.confidence, Confidence.ok);
+    });
+
+    test('ручная правка снимает пометку и проверку', () {
+      const applier = CorrectionApplier();
+      final record = mapper.map(sourceRow(
+        rawName: 'Associa\u{F50D}ao de russos livres '
+            '(«Ассоциация свободных россиян») (Португальская Республика)',
+      ));
+      expect(record.confidence, Confidence.review);
+
+      final fixed = applier.apply(record, [
+        CorrectionInput(
+          field: RecordField.nameAdd,
+          value: 'Associação de russos livres',
+          sourceNameHash: record.sourceRow.sourceNameHash,
+          author: 'tester',
+          createdAt: DateTime(2026, 8, 26),
+        ),
+      ]);
+
+      expect(fixed.notes, isNot(contains(ParseNote.charNotInCp1251)));
+      expect(fixed.confidence, Confidence.ok,
+          reason: 'причина проверки устранена');
+    });
+
+    test('правка, не устранившая символ, оставляет запись на проверке', () {
+      const applier = CorrectionApplier();
+      final record = mapper.map(sourceRow(
+        rawName: 'Associa\u{F50D}ao de russos livres '
+            '(«Ассоциация свободных россиян») (Португальская Республика)',
+      ));
+
+      final still = applier.apply(record, [
+        CorrectionInput(
+          field: RecordField.nameRus,
+          value: 'Ассоциация свободных россиян',
+          sourceNameHash: record.sourceRow.sourceNameHash,
+          author: 'tester',
+          createdAt: DateTime(2026, 8, 26),
+        ),
+      ]);
+
+      expect(still.notes, contains(ParseNote.charNotInCp1251));
+      expect(still.confidence, Confidence.review);
+    });
+
+    test('пометка не мешает остальному разбору', () {
+      final record = mapper.map(sourceRow(
+        rawName: 'Bad\u{F50D}name («Плохое имя») (США)',
+      ));
+
+      expect(record.value(RecordField.nameRus), 'Плохое имя');
+      expect(record.value(RecordField.country), 'США');
+      expect(record.notes, contains(ParseNote.charNotInCp1251));
+    });
+  });
+
   group('мэппинг колонок (п. 5)', () {
     test('номер и дата распоряжения о включении', () {
       final record = mapper.map(sourceRow());

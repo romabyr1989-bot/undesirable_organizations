@@ -79,8 +79,13 @@ class ApiClient implements PerechenApi {
   final http.Client _client;
 
   @override
-  Uri exportUri(int versionId) =>
-      baseUri.resolve('api/versions/$versionId/export.csv');
+  Uri exportUri(int versionId) => baseUri.resolve(
+        // Адрес выгрузки постоянный, а содержимое меняется после ручных
+        // правок. Метка времени не даёт браузеру отдать сохранённую копию —
+        // сервер лишний параметр игнорирует.
+        'api/versions/$versionId/export.csv'
+        '?t=${DateTime.now().millisecondsSinceEpoch}',
+      );
 
   @override
   Future<HealthInfo> health() async =>

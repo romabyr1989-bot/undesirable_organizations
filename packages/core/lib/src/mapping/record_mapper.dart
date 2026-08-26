@@ -2,6 +2,7 @@
 library;
 
 import '../config/core_config.dart';
+import '../csv/cp1251.dart';
 import '../models/parsed.dart';
 import '../models/record.dart';
 import '../models/source.dart';
@@ -23,7 +24,13 @@ class RecordMapper {
 
   /// Собирает целевую запись из строки первоисточника.
   ParsedRecord map(SourceRow row) {
-    final parsedName = nameParser.parse(row.rawName);
+    // В первоисточнике попадаются слова, где буква набрана не тем алфавитом
+    // («Управлiння» с латинской «i»). Приводим к одному алфавиту до разбора:
+    // иначе и разбор делит слово на фрагменты по алфавитам, и в целевом файле
+    // такое слово не находится поиском.
+    final rawName = fixHomoglyphs(row.rawName);
+    final homoglyphsFixed = rawName != row.rawName;
+    final parsedName = nameParser.parse(rawName);
 
     final values = <RecordField, String>{
       RecordField.targetNo: _clean(row.ordinal),
@@ -41,16 +48,32 @@ class RecordMapper {
           : '',
     };
 
+    // Символ, которого нет в cp1251 и которому не нашлось аналога, ушёл бы в
+    // целевой файл вопросительным знаком. Такое встречается в самом
+    // первоисточнике (следы кривой конвертации на стороне Минюста), поэтому
+    // запись отправляется человеку на проверку до выгрузки.
+    final lossy = values.values.any(_hasUnrepresentableChars);
+    final extraNotes = <String>{
+      if (lossy) ParseNote.charNotInCp1251,
+      if (homoglyphsFixed) ParseNote.homoglyphFixed,
+    };
+    final notes = extraNotes.isEmpty
+        ? parsedName.notes
+        : (<String>{...parsedName.notes, ...extraNotes}.toList()..sort());
+
     return ParsedRecord(
       orgKey: orgKeyOf(row),
       rowNum: row.rowNum,
       values: values,
-      confidence: parsedName.confidence,
-      notes: parsedName.notes,
+      confidence: lossy ? Confidence.review : parsedName.confidence,
+      notes: notes,
       sourceRow: row,
       parsedName: parsedName,
     );
   }
+
+  bool _hasUnrepresentableChars(String value) =>
+      hasUnrepresentableChars(value);
 
   /// `№ {номер} от {дата}` (колонки 2 и 7 целевого файла).
   String orderRequisites(String number, String date) {
@@ -90,6 +113,15 @@ class RecordMapper {
   }
 }
 
+const _cp1251Encoder = Cp1251Encoder();
+
+/// Есть ли в значении символ, которому не нашлось аналога в cp1251: в целевом
+/// файле он превратится в «?».
+bool hasUnrepresentableChars(String value) => _cp1251Encoder
+    .encode(value)
+    .replacements
+    .any((replacement) => replacement.isLossy);
+
 /// Применяет ручные правки к записям (FR-4: приоритет человека).
 class CorrectionApplier {
   const CorrectionApplier();
@@ -126,13 +158,25 @@ class CorrectionApplier {
       notes.add('stale_correction');
     }
 
+    // Пометку про непереносимый символ считаем по итоговым значениям: если
+    // ответственный поправил наименование, причина исчезла — незачем держать
+    // запись на проверке.
+    final lossy = values.values.any(hasUnrepresentableChars);
+    notes.remove(ParseNote.charNotInCp1251);
+    if (lossy) notes.add(ParseNote.charNotInCp1251);
+    notes.sort();
+
     return record.copyWith(
       values: values,
       editedFields: edited,
       staleCorrections: stale,
       notes: notes,
-      confidence:
-          stale.isNotEmpty ? Confidence.review : record.confidence,
+      confidence: stale.isNotEmpty || lossy
+          ? Confidence.review
+          // Базовая уверенность — от разбора: пометка про символ могла быть
+          // единственной причиной проверки. Разбора под рукой нет только у
+          // записей, поднятых из БД, — там оставляем как было.
+          : record.parsedName?.confidence ?? record.confidence,
     );
   }
 }

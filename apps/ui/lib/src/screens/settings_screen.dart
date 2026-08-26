@@ -13,7 +13,6 @@ import '../models/models.dart';
 import '../util/formatting.dart';
 
 /// Идентификаторы настроек: совпадают с полями REST API.
-const _exportUrlKey = 'minjustExportUrl';
 const _pageUrlKey = 'minjustPageUrl';
 const _cdiDropDirKey = 'cdiDropDir';
 const _downloadCronKey = 'downloadCron';
@@ -29,7 +28,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _exportUrl = TextEditingController();
   final _pageUrl = TextEditingController();
   final _cdiDropDir = TextEditingController();
   final _downloadCron = TextEditingController();
@@ -56,7 +54,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _exportUrl.dispose();
     _pageUrl.dispose();
     _cdiDropDir.dispose();
     _downloadCron.dispose();
@@ -65,7 +62,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   TextEditingController _controller(String key) => switch (key) {
-        _exportUrlKey => _exportUrl,
         _pageUrlKey => _pageUrl,
         _downloadCronKey => _downloadCron,
         _autoPublishCronKey => _autoPublishCron,
@@ -73,7 +69,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       };
 
   SettingValue _valueOf(String key) => switch (key) {
-        _exportUrlKey => _settings.minjustExportUrl,
         _pageUrlKey => _settings.minjustPageUrl,
         _downloadCronKey => _settings.downloadCron,
         _autoPublishCronKey => _settings.autoPublishCron,
@@ -81,7 +76,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       };
 
   static const _allKeys = [
-    _exportUrlKey,
     _pageUrlKey,
     _cdiDropDirKey,
     _downloadCronKey,
@@ -111,7 +105,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _apply(AppSettings settings) {
     _settings = settings;
-    _exportUrl.text = settings.minjustExportUrl.value;
     _pageUrl.text = settings.minjustPageUrl.value;
     _cdiDropDir.text = settings.cdiDropDir.value;
     _downloadCron.text = settings.downloadCron.value;
@@ -190,195 +183,176 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {});
   }
 
-  /// Пояснение под полем расписания: во что превратится cron-выражение.
-  String _cronHelper(String expression) {
-    final text = expression.trim();
-    if (text.isEmpty) return '';
-    final human = cronTitle(text);
-    return human == text
-        ? 'Выражение не распознано: минуты часы день месяц день-недели'
-        : 'Запуск $human';
-  }
-
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Настройки'),
-        actions: [
-          IconButton(
-            onPressed: _loading || _saving ? null : _load,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Обновить',
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && _settings.cdiDropDir.value.isEmpty
-              ? Center(child: Text(_error!))
-              : ListView(
-                  padding: const EdgeInsets.all(24),
-                  children: [
-                    Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 760),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (_error != null) ...[
-                              _ErrorBanner(message: _error!),
-                              const SizedBox(height: 16),
-                            ],
-                            _Section(
-                              icon: Icons.cloud_download_outlined,
-                              title: 'Первоисточник',
-                              description:
-                                  'Откуда служба забирает файл перечня. Если '
-                                  'прямая ссылка пуста, адрес файла ищется на '
-                                  'странице перечня.',
-                              children: [
-                                _SettingField(
-                                  label: 'Прямая ссылка на файл (xlsx)',
-                                  hint: 'https://minjust.gov.ru/.../export.xlsx',
-                                  controller: _exportUrl,
-                                  setting: _settings.minjustExportUrl,
-                                  errorText: _fieldErrors[_exportUrlKey],
-                                  willReset: _resetFields.contains(_exportUrlKey),
-                                  onChanged: () => _onChanged(_exportUrlKey),
-                                  onReset: () => _resetToConfig(_exportUrlKey),
-                                  enabled: !_saving,
-                                ),
-                                const SizedBox(height: 20),
-                                _SettingField(
-                                  label: 'Страница перечня на сайте Минюста',
-                                  hint: 'https://minjust.gov.ru/ru/pages/...',
-                                  controller: _pageUrl,
-                                  setting: _settings.minjustPageUrl,
-                                  errorText: _fieldErrors[_pageUrlKey],
-                                  willReset: _resetFields.contains(_pageUrlKey),
-                                  onChanged: () => _onChanged(_pageUrlKey),
-                                  onReset: () => _resetToConfig(_pageUrlKey),
-                                  enabled: !_saving,
-                                ),
-                              ],
-                            ),
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: const Text('Настройки'),
+          actions: [
+            IconButton(
+              onPressed: _loading || _saving ? null : _load,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Обновить',
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null && _settings.cdiDropDir.value.isEmpty
+                ? Center(child: Text(_error!))
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      // На широком окне три раздела стоят в ряд одинаковой
+                      // ширины, IntrinsicHeight равняет их и по высоте.
+                      // На узком — тем же порядком в столбик, тоже во всю
+                      // ширину.
+                      final inRow = constraints.maxWidth >= 1100;
+                      final sections = [
+                        _sourceSection(),
+                        _scheduleSection(),
+                        _cdiSection(),
+                      ];
+                      return ListView(
+                        padding: const EdgeInsets.all(24),
+                        children: [
+                          if (_error != null) ...[
+                            _ErrorBanner(message: _error!),
                             const SizedBox(height: 20),
-                            _Section(
-                              icon: Icons.alarm,
-                              title: 'Расписание',
-                              description:
-                                  'Когда служба проверяет сайт и когда сама '
-                                  'публикует неподтверждённую версию. Формат '
-                                  'cron: минуты часы день месяц день недели. '
-                                  'Время — '
-                                  '${timeZoneTitle(_settings.timeZone)}.',
-                              children: [
-                                _SettingField(
-                                  label: 'Проверка сайта',
-                                  hint: '0 6 * * *',
-                                  controller: _downloadCron,
-                                  setting: _settings.downloadCron,
-                                  errorText: _fieldErrors[_downloadCronKey],
-                                  willReset:
-                                      _resetFields.contains(_downloadCronKey),
-                                  onChanged: () => _onChanged(_downloadCronKey),
-                                  onReset: () =>
-                                      _resetToConfig(_downloadCronKey),
-                                  enabled: !_saving,
-                                  helper: _cronHelper(_downloadCron.text),
-                                ),
-                                const SizedBox(height: 20),
-                                _SettingField(
-                                  label: 'Авто-публикация',
-                                  hint: '0 20 * * *',
-                                  controller: _autoPublishCron,
-                                  setting: _settings.autoPublishCron,
-                                  errorText:
-                                      _fieldErrors[_autoPublishCronKey],
-                                  willReset: _resetFields
-                                      .contains(_autoPublishCronKey),
-                                  onChanged: () =>
-                                      _onChanged(_autoPublishCronKey),
-                                  onReset: () =>
-                                      _resetToConfig(_autoPublishCronKey),
-                                  enabled: !_saving,
-                                  helper: _cronHelper(_autoPublishCron.text),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                            _Section(
-                              icon: Icons.folder_open,
-                              title: 'Выгрузка в CDI',
-                              description:
-                                  'Папка, из которой существующий скрипт '
-                                  'забирает целевой CSV. Проверяется при '
-                                  'сохранении: папка создаётся, если её нет, и '
-                                  'в неё пробуют записать файл.',
-                              children: [
-                                _SettingField(
-                                  label: 'Папка для целевого CSV',
-                                  hint: '/mnt/cdi/inbox',
-                                  controller: _cdiDropDir,
-                                  setting: _settings.cdiDropDir,
-                                  errorText: _fieldErrors[_cdiDropDirKey],
-                                  willReset:
-                                      _resetFields.contains(_cdiDropDirKey),
-                                  onChanged: () => _onChanged(_cdiDropDirKey),
-                                  onReset: () => _resetToConfig(_cdiDropDirKey),
-                                  enabled: !_saving,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 24),
-                            Row(
-                              children: [
-                                if (_settings.updatedAt != null)
-                                  Expanded(
-                                    child: Text(
-                                      'Последнее изменение: '
-                                      '${formatMoscowDateTime(
-                                        _settings.updatedAt!,
-                                      )}'
-                                      '${_settings.updatedBy == null
-                                          ? ''
-                                          : ' · ${_settings.updatedBy}'}',
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                  )
-                                else
-                                  const Spacer(),
-                                TextButton(
-                                  onPressed: _saving
-                                      ? null
-                                      : () => setState(() => _apply(_settings)),
-                                  child: const Text('Отменить изменения'),
-                                ),
-                                const SizedBox(width: 12),
-                                FilledButton.icon(
-                                  onPressed: _saving ? null : _save,
-                                  icon: _saving
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.save_outlined),
-                                  label: const Text('Сохранить'),
-                                ),
-                              ],
-                            ),
                           ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                          if (inRow)
+                            IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  for (final section in sections) ...[
+                                    Expanded(child: section),
+                                    if (section != sections.last)
+                                      const SizedBox(width: 20),
+                                  ],
+                                ],
+                              ),
+                            )
+                          else
+                            for (final section in sections) ...[
+                              section,
+                              if (section != sections.last)
+                                const SizedBox(height: 20),
+                            ],
+                        ],
+                      );
+                    },
+                  ),
+        bottomNavigationBar: _loading ? null : _actionsBar(context),
+      );
+
+  Widget _sourceSection() => _Section(
+        icon: Icons.cloud_download_outlined,
+        title: 'Первоисточник',
+        children: [
+          _SettingField(
+            label: 'Страница перечня на сайте Минюста',
+            controller: _pageUrl,
+            setting: _settings.minjustPageUrl,
+            errorText: _fieldErrors[_pageUrlKey],
+            willReset: _resetFields.contains(_pageUrlKey),
+            onChanged: () => _onChanged(_pageUrlKey),
+            onReset: () => _resetToConfig(_pageUrlKey),
+            enabled: !_saving,
+          ),
+        ],
+      );
+
+  Widget _scheduleSection() => _Section(
+        icon: Icons.alarm,
+        title: 'Расписание',
+        children: [
+          _SettingField(
+            label: 'Проверка сайта',
+            controller: _downloadCron,
+            setting: _settings.downloadCron,
+            errorText: _fieldErrors[_downloadCronKey],
+            willReset: _resetFields.contains(_downloadCronKey),
+            onChanged: () => _onChanged(_downloadCronKey),
+            onReset: () => _resetToConfig(_downloadCronKey),
+            enabled: !_saving,
+          ),
+          const SizedBox(height: 20),
+          _SettingField(
+            label: 'Авто-публикация',
+            controller: _autoPublishCron,
+            setting: _settings.autoPublishCron,
+            errorText: _fieldErrors[_autoPublishCronKey],
+            willReset: _resetFields.contains(_autoPublishCronKey),
+            onChanged: () => _onChanged(_autoPublishCronKey),
+            onReset: () => _resetToConfig(_autoPublishCronKey),
+            enabled: !_saving,
+          ),
+        ],
+      );
+
+  Widget _cdiSection() => _Section(
+        icon: Icons.folder_open,
+        title: 'Выгрузка в CDI',
+        children: [
+          _SettingField(
+            label: 'Папка для целевого CSV',
+            controller: _cdiDropDir,
+            setting: _settings.cdiDropDir,
+            errorText: _fieldErrors[_cdiDropDirKey],
+            willReset: _resetFields.contains(_cdiDropDirKey),
+            onChanged: () => _onChanged(_cdiDropDirKey),
+            onReset: () => _resetToConfig(_cdiDropDirKey),
+            enabled: !_saving,
+          ),
+        ],
+      );
+
+  /// Кнопки внизу экрана: форма может быть длинной, а «Сохранить» должно быть
+  /// на виду всегда.
+  Widget _actionsBar(BuildContext context) {
+    final theme = Theme.of(context);
+    final updatedAt = _settings.updatedAt;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: theme.dividerColor)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                updatedAt == null
+                    ? 'Значения берутся из конфигурации службы, пока их не '
+                        'изменили здесь.'
+                    : 'Последнее изменение: '
+                        '${formatMoscowDateTime(updatedAt)}'
+                        '${_settings.updatedBy == null ? '' : ' · '
+                            '${_settings.updatedBy}'}',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            const SizedBox(width: 16),
+            TextButton(
+              onPressed:
+                  _saving ? null : () => setState(() => _apply(_settings)),
+              child: const Text('Отменить изменения'),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: const Text('Сохранить'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -387,13 +361,11 @@ class _Section extends StatelessWidget {
   const _Section({
     required this.icon,
     required this.title,
-    required this.description,
     required this.children,
   });
 
   final IconData icon;
   final String title;
-  final String description;
   final List<Widget> children;
 
   @override
@@ -413,8 +385,6 @@ class _Section extends StatelessWidget {
                 Text(title, style: theme.textTheme.titleMedium),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(description, style: theme.textTheme.bodySmall),
             const SizedBox(height: 20),
             ...children,
           ],
@@ -427,7 +397,6 @@ class _Section extends StatelessWidget {
 class _SettingField extends StatelessWidget {
   const _SettingField({
     required this.label,
-    required this.hint,
     required this.controller,
     required this.setting,
     required this.onChanged,
@@ -435,11 +404,9 @@ class _SettingField extends StatelessWidget {
     required this.willReset,
     required this.enabled,
     this.errorText,
-    this.helper = '',
   });
 
   final String label;
-  final String hint;
   final TextEditingController controller;
   final SettingValue setting;
   final VoidCallback onChanged;
@@ -447,9 +414,6 @@ class _SettingField extends StatelessWidget {
   final bool willReset;
   final bool enabled;
   final String? errorText;
-
-  /// Пояснение под полем — например, как прочитано расписание.
-  final String helper;
 
   @override
   Widget build(BuildContext context) {
@@ -464,9 +428,7 @@ class _SettingField extends StatelessWidget {
           onChanged: (_) => onChanged(),
           decoration: InputDecoration(
             labelText: label,
-            hintText: hint,
             errorText: errorText,
-            helperText: errorText == null && helper.isNotEmpty ? helper : null,
             border: const OutlineInputBorder(),
             suffixIcon: setting.overridden
                 ? Tooltip(
@@ -482,14 +444,16 @@ class _SettingField extends StatelessWidget {
         if (showConfigValue)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: Row(
+            // Wrap, а не Row: в узкой колонке кнопка не помещается рядом со
+            // значением и переносится под него.
+            child: Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Expanded(
-                  child: Text(
-                    'В конфигурации службы: '
-                    '${setting.fromConfig.isEmpty ? "— пусто —" : setting.fromConfig}',
-                    style: theme.textTheme.bodySmall,
-                  ),
+                Text(
+                  'В конфигурации службы: '
+                  '${setting.fromConfig.isEmpty ? "— пусто —" : setting.fromConfig}',
+                  style: theme.textTheme.bodySmall,
                 ),
                 TextButton(
                   onPressed: enabled ? onReset : null,

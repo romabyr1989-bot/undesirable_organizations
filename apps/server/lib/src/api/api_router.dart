@@ -156,11 +156,19 @@ class ApiServer {
     final versionId = int.parse(id);
     try {
       final csv = publisher.buildCsv(versionId);
+      // В папку CDI уходит cp1251 (п. 4 ТЗ) — так ждёт скрипт загрузки.
+      // Человеку отдаём тот же файл в UTF-8 с BOM: иначе Excel, Numbers и
+      // просмотрщики на macOS читают cp1251 как UTF-8 и показывают кашу.
+      final text = const Cp1251Encoder().decode(csv.bytes);
       return Response.ok(
-        csv.bytes,
+        utf8.encode('\u{FEFF}$text'),
         headers: {
-          'Content-Type': 'text/csv; charset=windows-1251',
+          'Content-Type': 'text/csv; charset=utf-8',
           'Content-Disposition': 'attachment; filename="${csv.fileName}"',
+          // Адрес выгрузки постоянный, а содержимое меняется после ручных
+          // правок — браузер не должен отдавать сохранённую копию.
+          'Cache-Control': 'no-store, must-revalidate',
+          'Pragma': 'no-cache',
         },
       );
     } on PublishException catch (error) {

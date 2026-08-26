@@ -38,6 +38,11 @@ class Cp1251EncodeResult {
   final List<Cp1251Replacement> replacements;
 }
 
+/// Байт cp1251 -> символ (строится один раз из [cp1251Table]).
+final Map<int, int> _reverseTable = {
+  for (final entry in cp1251Table.entries) entry.value: entry.key,
+};
+
 /// Кодировщик cp1251.
 class Cp1251Encoder {
   const Cp1251Encoder();
@@ -91,14 +96,14 @@ class Cp1251Encoder {
   bool isRepresentable(String text) =>
       text.runes.every(cp1251Table.containsKey);
 
-  /// Декодирование cp1251 -> строка (нужно тестам и предпросмотру).
+  /// Декодирование cp1251 -> строка.
+  ///
+  /// Нужно тестам, предпросмотру и выгрузке человеку: в папку CDI уходит
+  /// cp1251 (п. 4 ТЗ), а браузеру тот же файл отдаётся в UTF-8.
   String decode(List<int> bytes) {
-    final reverse = <int, int>{
-      for (final entry in cp1251Table.entries) entry.value: entry.key,
-    };
     final buffer = StringBuffer();
     for (final byte in bytes) {
-      final code = reverse[byte];
+      final code = _reverseTable[byte];
       if (code != null) buffer.writeCharCode(code);
     }
     return buffer.toString();

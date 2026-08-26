@@ -140,7 +140,8 @@ class CounterChip extends StatelessWidget {
   final Color? color;
   final VoidCallback? onTap;
 
-  /// Плашка — активный фильтр перечня.
+  /// Плашка — активный фильтр перечня. Показывается рамкой и заливкой:
+  /// галочка внутри плашки только зашумляла ряд.
   final bool selected;
 
   /// Отступ справа: задаётся плашкой, а не `Wrap.spacing`, чтобы ширина
@@ -172,10 +173,6 @@ class CounterChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (selected) ...[
-              Icon(Icons.check, size: 14, color: effective),
-              const SizedBox(width: 4),
-            ],
             Text(
               '$value',
               style: TextStyle(

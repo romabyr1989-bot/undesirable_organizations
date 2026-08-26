@@ -111,3 +111,101 @@ double similarity(String a, String b) {
   if (maxLen == 0) return 1;
   return 1 - levenshtein(a, b) / maxLen;
 }
+
+/// Пары «латиница → кириллица», неразличимые на глаз.
+///
+/// В первоисточнике встречаются слова, где одна буква набрана не тем
+/// алфавитом: «Управлiння» с латинской `i`, «ОРГАНI3АЦIЯ» с латинской `I` и
+/// цифрой `3`, «Transparеncy» с кириллической `е`. На вид всё в порядке, но в
+/// целевом файле такие слова не находятся поиском и не сортируются.
+const _latinToCyrillic = <String, String>{
+  'A': 'А', 'B': 'В', 'C': 'С', 'E': 'Е', 'H': 'Н', 'I': 'І', 'K': 'К',
+  'M': 'М', 'O': 'О', 'P': 'Р', 'T': 'Т', 'X': 'Х', 'Y': 'У',
+  'a': 'а', 'c': 'с', 'e': 'е', 'i': 'і', 'o': 'о', 'p': 'р', 'x': 'х',
+  'y': 'у', 'ï': 'ї', 'Ï': 'Ї',
+  // Турецкую «Ç» в перечне пишут кириллической «Ҫ» (Ҫeҫen Kafkas...).
+  'Ç': 'Ҫ', 'ç': 'ҫ',
+};
+
+final Map<String, String> _cyrillicToLatin = {
+  for (final entry in _latinToCyrillic.entries) entry.value: entry.key,
+};
+
+/// Цифры, которыми в первоисточнике заменяют буквы («ОРГАНI3АЦIЯ»).
+const _digitToCyrillic = <String, String>{'3': 'З', '0': 'О'};
+
+bool _isCyrillic(String ch) =>
+    (ch.compareTo('А') >= 0 && ch.compareTo('я') <= 0) ||
+    'ЁёЄєІіЇїҐґЎўҪҫ'.contains(ch);
+
+bool _isLatin(String ch) =>
+    (ch.compareTo('A') >= 0 && ch.compareTo('Z') <= 0) ||
+    (ch.compareTo('a') >= 0 && ch.compareTo('z') <= 0) ||
+    'ÇçÏï'.contains(ch);
+
+/// Приводит слово к одному алфавиту, если второй представлен в нём только
+/// неразличимыми на глаз буквами.
+///
+/// Слово, где оба алфавита представлены собственными буквами («КрымSOS»),
+/// не трогается: это осознанно двуязычное название.
+String fixHomoglyphs(String value) {
+  if (value.isEmpty) return value;
+  final buffer = StringBuffer();
+  final word = StringBuffer();
+
+  void flushWord() {
+    if (word.isEmpty) return;
+    buffer.write(_fixWord(word.toString()));
+    word.clear();
+  }
+
+  for (final rune in value.runes) {
+    final ch = String.fromCharCode(rune);
+    final isWordChar = _isLatin(ch) || _isCyrillic(ch) || _digitToCyrillic.containsKey(ch);
+    if (isWordChar) {
+      word.write(ch);
+    } else {
+      flushWord();
+      buffer.write(ch);
+    }
+  }
+  flushWord();
+  return buffer.toString();
+}
+
+String _fixWord(String word) {
+  var cyrillicOwn = 0;
+  var latinOwn = 0;
+  for (final rune in word.runes) {
+    final ch = String.fromCharCode(rune);
+    if (_isCyrillic(ch) && !_cyrillicToLatin.containsKey(ch)) cyrillicOwn++;
+    if (_isLatin(ch) && !_latinToCyrillic.containsKey(ch)) latinOwn++;
+  }
+  // Ни одного однозначного алфавита или сразу оба — не вмешиваемся.
+  if (cyrillicOwn == 0 && latinOwn == 0) return word;
+  if (cyrillicOwn > 0 && latinOwn > 0) return word;
+
+  final chars = word.split('');
+  final toCyrillic = cyrillicOwn > 0;
+  for (var i = 0; i < chars.length; i++) {
+    final ch = chars[i];
+    if (toCyrillic) {
+      final letter = _latinToCyrillic[ch];
+      if (letter != null) {
+        chars[i] = letter;
+        continue;
+      }
+      // Цифру заменяем буквой, только если она стоит между буквами.
+      final digit = _digitToCyrillic[ch];
+      final insideWord = i > 0 &&
+          i < chars.length - 1 &&
+          !_digitToCyrillic.containsKey(chars[i - 1]) &&
+          !_digitToCyrillic.containsKey(chars[i + 1]);
+      if (digit != null && insideWord) chars[i] = digit;
+    } else {
+      final letter = _cyrillicToLatin[ch];
+      if (letter != null) chars[i] = letter;
+    }
+  }
+  return chars.join();
+}

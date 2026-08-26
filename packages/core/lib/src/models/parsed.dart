@@ -126,6 +126,14 @@ class ParseNote {
   static const duplicateDropped = 'duplicate_dropped';
   static const noLatinName = 'no_latin_name';
   static const noCyrillicName = 'no_cyrillic_name';
+
+  /// В слове буква была набрана не тем алфавитом (латинская `i` в
+  /// кириллическом слове и наоборот) — приведено к одному алфавиту.
+  static const homoglyphFixed = 'homoglyph_fixed';
+
+  /// В значении есть символ, которого нет в cp1251 и для которого нет
+  /// аналога: в целевом файле он станет «?».
+  static const charNotInCp1251 = 'char_not_in_cp1251';
 }
 
 /// Результат разбора реквизита «Наименование организации».

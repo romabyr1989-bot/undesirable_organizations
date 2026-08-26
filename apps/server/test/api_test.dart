@@ -2,6 +2,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:perechen_core/perechen_core.dart';
@@ -222,22 +223,59 @@ void main() {
       expect(response.statusCode, 400);
     });
 
-    test('GET /api/versions/{id}/export.csv отдаёт cp1251 и CRLF', () async {
+    test('GET /api/versions/{id}/export.csv отдаёт UTF-8 с BOM и CRLF',
+        () async {
+      // Человеку файл нужен читаемым: Excel и просмотрщики на macOS
+      // открывают .csv как UTF-8, а cp1251 показывают кашей.
       final response = await client.get(
         baseUri.resolve('/api/versions/$versionId/export.csv'),
         headers: auth(),
       );
       expect(response.statusCode, 200);
-      expect(response.headers['content-type'], contains('windows-1251'));
+      expect(response.headers['content-type'], contains('utf-8'));
       expect(
         response.headers['content-disposition'],
         contains('perechen_organizatsij_272_FZ_2026_08_14.csv'),
       );
-      const encoder = Cp1251Encoder();
-      final text = encoder.decode(response.bodyBytes);
+      expect(response.bodyBytes.sublist(0, 3), [0xEF, 0xBB, 0xBF],
+          reason: 'по BOM Excel распознаёт кодировку');
+      expect(response.headers['cache-control'], contains('no-store'),
+          reason: 'после правок адрес тот же, а содержимое другое');
+      final text = utf8.decode(response.bodyBytes.sublist(3));
       expect(text.startsWith(';Номер и дата распоряжения'), isTrue);
       expect(text.endsWith('\r\n'), isTrue);
-      expect(response.bodyBytes.sublist(0, 3), isNot([0xEF, 0xBB, 0xBF]));
+    });
+
+    test('в CDI при этом уходит cp1251 (п. 4 ТЗ)', () async {
+      final published = await client.post(
+        baseUri.resolve('/api/versions/$versionId/confirm'),
+        headers: auth(),
+      );
+      final fileName = (jsonDecode(utf8.decode(published.bodyBytes))
+          as Map<String, Object?>)['fileName']! as String;
+
+      final bytes = File('${harness.cdiDir}/$fileName').readAsBytesSync();
+      expect(bytes.sublist(0, 3), isNot([0xEF, 0xBB, 0xBF]),
+          reason: 'BOM в файле для скрипта загрузки не нужен');
+      expect(
+        () => utf8.decode(bytes),
+        throwsA(isA<FormatException>()),
+        reason: 'это не UTF-8, а cp1251',
+      );
+      expect(
+        const Cp1251Encoder().decode(bytes),
+        startsWith(';Номер и дата распоряжения'),
+      );
+
+      // Содержимое совпадает с тем, что отдаётся человеку.
+      final download = await client.get(
+        baseUri.resolve('/api/versions/$versionId/export.csv'),
+        headers: auth(),
+      );
+      expect(
+        utf8.decode(download.bodyBytes.sublist(3)),
+        const Cp1251Encoder().decode(bytes),
+      );
     });
 
     test('POST /api/versions/{id}/confirm публикует файл', () async {

@@ -378,6 +378,16 @@ class CheckResultInfo {
   final String message;
   final int? versionId;
 
+  /// Текст для уведомления: заголовок и сообщение сервера, если оно что-то
+  /// добавляет. Иначе выходит «Новой версии нет. новой версии нет».
+  String get summary {
+    final detail = message.trim();
+    if (detail.isEmpty) return title;
+    String normalize(String value) =>
+        value.toLowerCase().replaceAll(RegExp(r'[.!\s]+$'), '');
+    return normalize(detail) == normalize(title) ? title : '$title. $detail';
+  }
+
   String get title => switch (status) {
         'newVersion' => 'Найдена новая версия',
         'noChange' => 'Новой версии нет',
