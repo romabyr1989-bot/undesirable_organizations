@@ -3,6 +3,7 @@
 #
 #   sudo ./install.sh
 #   sudo ./install.sh --data-dir /srv/perechen --cdi-dir /mnt/cdi/inbox --port 8080
+#   sudo ./install.sh --open-firewall        # заодно открыть порт в firewalld
 #
 # Повторный запуск обновляет установленную службу, сохраняя данные и
 # /etc/perechen/config.yaml.
@@ -15,6 +16,7 @@ config_dir=/etc/perechen
 service_user=perechen
 port=8080
 service_name=perechen
+open_firewall=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,7 +25,8 @@ while [[ $# -gt 0 ]]; do
     --cdi-dir)  cdi_dir="${2:?}"; shift 2 ;;
     --user)     service_user="${2:?}"; shift 2 ;;
     --port)     port="${2:?}"; shift 2 ;;
-    -h|--help)  sed -n '2,9p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --open-firewall) open_firewall=true; shift ;;
+    -h|--help)  sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "неизвестный аргумент: $1" >&2; exit 2 ;;
   esac
 done
@@ -98,6 +101,23 @@ chmod 644 "/etc/systemd/system/$service_name.service"
 # SELinux (RED OS, ALT): восстановить контексты скопированных файлов.
 if command -v restorecon >/dev/null 2>&1; then
   restorecon -R "$prefix" "$data_dir" 2>/dev/null || true
+fi
+
+# Межсетевой экран. На серверной установке RED OS/ALT firewalld включён, и
+# интерфейс снаружи не открывается, хотя служба работает и порт слушает.
+# Экран трогаем только по явной просьбе (как -OpenFirewall в Windows),
+# в остальных случаях — предупреждаем.
+if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1
+then
+  if [[ "$open_firewall" == true ]]; then
+    echo "==> firewalld: открываем $port/tcp"
+    firewall-cmd --permanent --add-port="$port/tcp" >/dev/null
+    firewall-cmd --reload >/dev/null
+  elif ! firewall-cmd --query-port="$port/tcp" >/dev/null 2>&1; then
+    echo "    firewalld включён, порт $port/tcp закрыт — снаружи интерфейс"
+    echo "    не откроется. Открыть: firewall-cmd --permanent --add-port=$port/tcp"
+    echo "    и firewall-cmd --reload (или переустановка с --open-firewall)."
+  fi
 fi
 
 systemctl daemon-reload

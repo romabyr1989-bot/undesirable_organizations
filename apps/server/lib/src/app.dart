@@ -14,6 +14,7 @@ import 'config/runtime_settings.dart';
 import 'db/database.dart';
 import 'db/sqlite_library.dart';
 import 'download/downloader.dart';
+import 'download/trusted_http_client.dart';
 import 'mail/mail_sender.dart';
 import 'mail/notifier.dart';
 import 'scheduler/cron.dart';
@@ -77,7 +78,7 @@ class PerechenApp {
     final downloader = Downloader(
       config: config,
       settings: settings,
-      client: httpClient,
+      client: httpClient ?? TrustedHttpClient.create(config, appLogger),
       logger: appLogger,
       sleep: sleep,
     );
@@ -197,6 +198,28 @@ class PerechenApp {
       if (!directory.existsSync()) directory.createSync(recursive: true);
     }
 
+    // Стартовые данные из комплекта — до того, как открыть порт: иначе
+    // ответственный успеет зайти на пустой список.
+    try {
+      final seeded = await service.seedFromBundle();
+      if (seeded != null) {
+        logger.info('загружены стартовые данные из комплекта', {
+          'path': config.seedFile,
+          'actualityDate': seeded.version == null
+              ? null
+              : MoscowTime.format(seeded.version!.actualityDate),
+          'counters': seeded.counters?.toJson(),
+        });
+      }
+    } catch (error) {
+      // Стартовые данные — удобство, а не условие работы: сервис должен
+      // подняться в любом случае и наполнить базу проверкой по расписанию.
+      logger.error('стартовые данные из комплекта не загрузились', {
+        'path': config.seedFile,
+        'error': '$error',
+      });
+    }
+
     _server = await shelf_io.serve(api.handler, config.host, config.port);
     logger.info('сервис запущен', {
       'host': config.host,
@@ -212,6 +235,7 @@ class PerechenApp {
       'dataDir': config.dataDir,
       'configFile': config.configFile,
       'sqlite': SqliteLibrary.loadedFrom,
+      'caBundle': TrustedHttpClient.loadedFrom,
     });
 
     if (config.schedulerEnabled) {

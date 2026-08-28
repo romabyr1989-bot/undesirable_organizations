@@ -86,14 +86,34 @@ class ApiServer {
     final indexHandler =
         createFileHandler(p.join(config.uiDir, 'index.html'));
 
+    // Интерфейс обновляется вместе со службой, а адреса файлов постоянные:
+    // без запрета браузер продолжает показывать предыдущую сборку. Валидаторы
+    // (Last-Modified) остаются, поэтому неизменённые файлы отдаются как 304.
+    Response noCache(Response response) => response.change(
+          headers: {'Cache-Control': 'no-cache, must-revalidate'},
+        );
+
+    /// Точка входа дополнительно просит браузер выбросить всё, что он
+    /// сохранил по этому адресу: у тех, кто открывал сервис до отключения
+    /// служебного воркера, он продолжает отдавать прежнюю сборку, и обычная
+    /// перезагрузка это не лечит.
+    Response resetStorage(Response response) => response.change(
+          headers: {'Clear-Site-Data': '"cache", "storage"'},
+        );
+
     return (Request request) async {
       if (request.url.path.startsWith('api/')) return router.call(request);
-      final response = await staticHandler(request);
+      final isEntryPoint =
+          request.url.path.isEmpty || request.url.path == 'index.html';
+      final response = noCache(await staticHandler(request));
+      if (isEntryPoint && response.statusCode == HttpStatus.ok) {
+        return resetStorage(response);
+      }
       if (response.statusCode == 404) {
         // SPA: неизвестные пути отдаём в index.html.
-        return indexHandler(
+        return resetStorage(noCache(await indexHandler(
           Request('GET', request.requestedUri.replace(path: '/')),
-        );
+        )));
       }
       return response;
     };
@@ -253,7 +273,9 @@ class ApiServer {
   }
 
   Future<Response> _checkNow(Request request) async {
-    final outcome = await service.checkNow(trigger: 'manual');
+    // Одна попытка: ретраи по 1 и 5 минут рассчитаны на ночную задачу,
+    // а здесь ответа ждёт человек перед экраном.
+    final outcome = await service.checkNow(trigger: 'manual', maxAttempts: 1);
     return _json(outcome.toJson());
   }
 

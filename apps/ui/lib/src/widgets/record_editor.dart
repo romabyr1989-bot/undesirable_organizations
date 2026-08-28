@@ -88,17 +88,17 @@ class RecordRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasMarks = record.isNew ||
-        record.isChanged ||
-        record.needsReview ||
-        record.hasEdits ||
-        record.hasStale ||
-        record.isExcluded;
-    final background = record.needsReview
-        ? const Color(0xFFB3261E).withAlpha(12)
-        : record.isNew
-            ? const Color(0xFF1B7F3B).withAlpha(12)
-            : null;
+    // Статус показывается подсветкой строки, а не подписью: в списке из
+    // сотен записей бейджи забивают наименование. Расшифровка — в развороте.
+    final background = switch (record) {
+      _ when record.needsReview => const Color(0xFFB3261E).withAlpha(12),
+      _ when record.isExcluded => const Color(0xFF7A7A7A).withAlpha(16),
+      _ when record.isChanged => const Color(0xFF9A6A00).withAlpha(14),
+      _ when record.isNew => const Color(0xFF1B7F3B).withAlpha(12),
+      _ when record.hasEdits || record.hasStale =>
+        const Color(0xFF1857B6).withAlpha(12),
+      _ => null,
+    };
 
     return Container(
       decoration: BoxDecoration(
@@ -132,12 +132,7 @@ class RecordRow extends StatelessWidget {
                         Flexible(
                           child: EllipsisCell(record.value(RecordField.nameRus)),
                         ),
-                        if (hasMarks) ...[
-                          const SizedBox(width: 8),
-                          RecordBadges(record: record),
-                          // просвет до соседней колонки, как у EllipsisCell
-                          const SizedBox(width: EllipsisCell.gap),
-                        ],
+
                       ],
                     ),
                   ),
@@ -166,12 +161,17 @@ class RecordRow extends StatelessWidget {
               ),
             ),
           ),
-          if (expanded)
+          if (expanded) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: RecordBadges(record: record),
+            ),
             _RecordDetails(
               record: record,
               onSave: onSave,
               onRevert: onRevert,
             ),
+          ],
         ],
       ),
     );

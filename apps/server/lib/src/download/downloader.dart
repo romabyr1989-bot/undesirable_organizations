@@ -60,9 +60,16 @@ class Downloader {
   Map<String, String> get _headers => {'User-Agent': config.userAgent};
 
   /// Скачивает xlsx с ретраями (1, 5, 15 минут по умолчанию).
-  Future<DownloadResult> download() async {
+  ///
+  /// [maxAttempts] ограничивает число попыток сверх настройки: расписание
+  /// ретраев рассчитано на ночную задачу, которой некуда спешить, и для
+  /// кнопки «Проверить сейчас» не годится — там человек ждёт ответа.
+  Future<DownloadResult> download({int? maxAttempts}) async {
     Object? lastError;
-    final attempts = config.httpRetries < 1 ? 1 : config.httpRetries;
+    var attempts = config.httpRetries < 1 ? 1 : config.httpRetries;
+    if (maxAttempts != null && maxAttempts < attempts) {
+      attempts = maxAttempts < 1 ? 1 : maxAttempts;
+    }
     for (var attempt = 1; attempt <= attempts; attempt++) {
       try {
         final url = await resolveExportUrl();

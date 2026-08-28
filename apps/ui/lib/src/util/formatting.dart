@@ -5,7 +5,8 @@ import '../models/models.dart';
 
 /// `2026-08-14T17:28:00+03:00` -> `14.08.2026 17:28`.
 String formatMoscowDateTime(String? value) {
-  if (value == null || value.isEmpty) return '—';
+  // Нет значения — пусто: прочерк ничего не сообщает, только шумит.
+  if (value == null || value.isEmpty) return '';
   final parsed = DateTime.tryParse(value);
   if (parsed == null) return value;
   final moscow = parsed.isUtc ? parsed.add(const Duration(hours: 3)) : parsed;

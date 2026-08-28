@@ -4,6 +4,7 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:perechen_core/perechen_core.dart';
 
@@ -55,6 +56,13 @@ class CheckOutcome {
       };
 }
 
+/// Откуда взялся файл, из которого создана версия.
+///
+/// Различие не косметическое: версия из комплекта — это стартовые данные при
+/// установке, а не находка ночной проверки. По ней не рассылают писем и её не
+/// записывают как «последнюю проверку сайта».
+enum _VersionSource { site, bundle }
+
 class VersionService {
   VersionService({
     required this.config,
@@ -92,13 +100,20 @@ class VersionService {
   String? get lastCheckStatus => db.meta(_lastCheckStatusKey);
 
   /// Полный цикл проверки сайта (cron и кнопка «Проверить сейчас»).
-  Future<CheckOutcome> checkNow({String trigger = 'manual'}) async {
+  ///
+  /// [maxAttempts] ограничивает ретраи загрузки: по кнопке из интерфейса
+  /// достаточно одной попытки, иначе ответственный ждёт ответа минутами,
+  /// не понимая, работает что-нибудь или нет.
+  Future<CheckOutcome> checkNow({
+    String trigger = 'manual',
+    int? maxAttempts,
+  }) async {
     db.addEvent(EventType.checkStarted, payload: {'trigger': trigger});
     final startedAt = _clock();
 
     final DownloadResult download;
     try {
-      download = await downloader.download();
+      download = await downloader.download(maxAttempts: maxAttempts);
     } catch (error) {
       return _handleDownloadFailure(error, startedAt);
     }
@@ -161,12 +176,67 @@ class VersionService {
     );
   }
 
+  /// Загружает в пустую базу файл перечня, приложенный к комплекту.
+  ///
+  /// Иначе после установки ответственный открывает интерфейс и видит пустой
+  /// список — до первой ночной проверки или до нажатия «Проверить сейчас».
+  ///
+  /// Срабатывает один раз: если версии в базе уже есть, файл не трогается.
+  /// Возвращает `null`, когда делать нечего или файл негоден.
+  Future<CheckOutcome?> seedFromBundle() async {
+    if (db.latestVersion() != null) return null;
+    final path = config.seedFile;
+    if (path.isEmpty) return null;
+    final file = File(path);
+    if (!file.existsSync()) return null;
+
+    final startedAt = _clock();
+    final Uint8List bytes;
+    try {
+      bytes = file.readAsBytesSync();
+    } on FileSystemException catch (error) {
+      _logger.error('стартовый файл перечня не прочитан', {
+        'path': path,
+        'error': '$error',
+      });
+      return null;
+    }
+
+    final SourceParseResult parsed;
+    try {
+      parsed = const SourceParser().parseBytes(bytes);
+    } on SourceStructureException catch (error) {
+      // Негодный файл в комплекте — не повод не запускаться: сервис поднимется
+      // с пустой базой и наполнит её сам по расписанию.
+      _logger.error('стартовый файл перечня не разобран', {
+        'path': path,
+        'error': '$error',
+      });
+      return null;
+    }
+
+    return _createVersion(
+      parsed: parsed,
+      download: DownloadResult(
+        bytes: bytes,
+        url: path,
+        sha256: sha256.convert(bytes).toString(),
+        attempts: 0,
+      ),
+      savedPath: _saveDownload(bytes, startedAt),
+      previousVersion: null,
+      startedAt: startedAt,
+      source: _VersionSource.bundle,
+    );
+  }
+
   Future<CheckOutcome> _createVersion({
     required SourceParseResult parsed,
     required DownloadResult download,
     required String savedPath,
     required PerechenVersion? previousVersion,
     required DateTime startedAt,
+    _VersionSource source = _VersionSource.site,
   }) async {
     final actualityDate = parsed.document.actualityDate;
     final versionId = db.insertVersion(
@@ -194,24 +264,34 @@ class VersionService {
         'actualityDate': MoscowTime.format(actualityDate),
         'counters': result.counters.toJson(),
         'warnings': parsed.warnings,
+        if (source == _VersionSource.bundle) 'source': 'комплект поставки',
       },
       versionId: versionId,
     );
-    _finishCheck(startedAt, 'new_version');
 
-    await notifier.newVersionFound(
-      version: version,
-      addedRecords: result.records.where((r) => r.isNew).toList(),
-      excludedRecords: result.excluded,
-      autoPublishDeadline: _nextAutoPublishAt(),
-      warnings: parsed.warnings,
-    );
+    // Стартовые данные — не результат проверки сайта: отмечать ими время
+    // последней проверки нельзя, иначе индикатор в интерфейсе врёт. Писем по
+    // ним тоже не шлют: рассылать при установке нечего, да и SMTP на свежей
+    // машине ещё не настроен.
+    if (source == _VersionSource.site) {
+      _finishCheck(startedAt, 'new_version');
+      await notifier.newVersionFound(
+        version: version,
+        addedRecords: result.records.where((r) => r.isNew).toList(),
+        excludedRecords: result.excluded,
+        autoPublishDeadline: _nextAutoPublishAt(),
+        warnings: parsed.warnings,
+      );
+    }
 
     return CheckOutcome(
       status: CheckStatus.newVersion,
       version: version,
       counters: result.counters,
-      message: 'создана версия ${MoscowTime.format(actualityDate)}',
+      message: source == _VersionSource.bundle
+          ? 'загружены стартовые данные '
+              '(${MoscowTime.format(actualityDate)})'
+          : 'создана версия ${MoscowTime.format(actualityDate)}',
     );
   }
 

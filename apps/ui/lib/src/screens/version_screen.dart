@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../app.dart';
 import '../models/models.dart';
 import '../util/formatting.dart';
 import '../util/link_opener.dart';
@@ -38,24 +39,39 @@ class _VersionScreenState extends State<VersionScreen> {
   bool _publishing = false;
   String? _error;
   Timer? _searchDebounce;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _autoRefresh = Timer.periodic(
+      autoRefreshInterval,
+      (_) => _load(silent: true),
+    );
   }
 
   @override
   void dispose() {
+    _autoRefresh?.cancel();
     _searchDebounce?.cancel();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  /// [silent] — фоновое обновление: без крутилки и без затирания того, что
+  /// уже показано, если запрос не прошёл. Пока строка развёрнута на правку,
+  /// фоновое обновление пропускается — иначе набранное сотрётся.
+  Future<void> _load({bool silent = false}) async {
+    if (silent &&
+        (_loading || _publishing || _expandedOrgKey != null)) {
+      return;
+    }
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final version = await widget.api.version(widget.versionId);
       final records = await widget.api.records(
@@ -71,6 +87,7 @@ class _VersionScreenState extends State<VersionScreen> {
       });
     } on ApiException catch (error) {
       if (!mounted) return;
+      if (silent) return;
       setState(() {
         _error = error.isUnauthorized
             ? 'Нет доступа: проверьте логин и пароль.'
@@ -235,11 +252,6 @@ class _VersionScreenState extends State<VersionScreen> {
               icon: const Icon(Icons.download),
             ),
           ],
-          IconButton(
-            tooltip: 'Обновить',
-            onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh),
-          ),
           const SizedBox(width: 8),
         ],
       ),
@@ -366,8 +378,9 @@ class _VersionScreenState extends State<VersionScreen> {
                   version.isPublished
                       ? 'Опубликовано '
                           '${formatMoscowDateTime(version.publishedAt)}: '
-                          '${version.publishedFileName} '
-                          '(${version.confirmedBy ?? '—'})'
+                          '${version.publishedFileName}'
+                          '${version.confirmedBy == null ? '' : ' '
+                              '(${version.confirmedBy})'}'
                       : 'Файл будет выложен как '
                           '${version.targetFileName}. '
                           'Записей: ${version.counters.total}, '

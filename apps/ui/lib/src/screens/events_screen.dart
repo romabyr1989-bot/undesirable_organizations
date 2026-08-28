@@ -1,9 +1,12 @@
 /// Экран 3. Журнал событий (п. 10 ТЗ).
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../app.dart';
 import '../models/models.dart';
 import '../util/formatting.dart';
 import '../widgets/badges.dart';
@@ -22,18 +25,34 @@ class _EventsScreenState extends State<EventsScreen> {
   List<EventItem> _events = const [];
   bool _loading = true;
   String? _error;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _autoRefresh = Timer.periodic(
+      autoRefreshInterval,
+      (_) => _load(silent: true),
+    );
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  @override
+  void dispose() {
+    _autoRefresh?.cancel();
+    super.dispose();
+  }
+
+  /// [silent] — фоновое обновление: без крутилки и без подмены показанного
+  /// журнала сообщением, если запрос не прошёл.
+  Future<void> _load({bool silent = false}) async {
+    if (silent && _loading) return;
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final events = await widget.api.events();
       if (!mounted) return;
@@ -43,6 +62,7 @@ class _EventsScreenState extends State<EventsScreen> {
       });
     } on ApiException catch (error) {
       if (!mounted) return;
+      if (silent) return;
       setState(() {
         _error = 'Ошибка загрузки журнала: ${error.message}';
         _loading = false;
@@ -54,14 +74,19 @@ class _EventsScreenState extends State<EventsScreen> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
           title: const Text('Журнал событий'),
-          actions: [
-            IconButton(
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Обновить',
-            ),
-            const SizedBox(width: 8),
-          ],
+          // Без кнопок справа Material центрирует заголовок — на остальных
+          // экранах он слева, держим одинаково.
+          centerTitle: false,
+          // Шапка таблицы — часть панели приложения: так она гарантированно
+          // остаётся на месте при прокрутке списка.
+          bottom: _loading || _error != null || _events.isEmpty
+              ? null
+              : PreferredSize(
+                  preferredSize: Size.fromHeight(
+                    MediaQuery.textScalerOf(context).scale(34),
+                  ),
+                  child: _header(context),
+                ),
         ),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
@@ -69,20 +94,11 @@ class _EventsScreenState extends State<EventsScreen> {
                 ? Center(child: Text(_error!))
                 : _events.isEmpty
                     ? const Center(child: Text('Событий пока нет'))
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _header(context),
-                          Expanded(
-                            child: ListView.separated(
-                              itemCount: _events.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) =>
-                                  _row(context, _events[index]),
-                            ),
-                          ),
-                        ],
+                    : ListView.separated(
+                        itemCount: _events.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) =>
+                            _row(context, _events[index]),
                       ),
       );
 
@@ -150,7 +166,9 @@ class _EventsScreenState extends State<EventsScreen> {
           SizedBox(
             width: tableGutter(context, 70),
             child: Text(
-              event.versionId?.toString() ?? '—',
+              // Событие может быть не привязано к версии — тогда ячейка
+              // просто пустая, прочерк здесь ничего не сообщает.
+              event.versionId?.toString() ?? '',
               style: theme.textTheme.bodySmall,
             ),
           ),

@@ -46,6 +46,8 @@ class AppConfig {
     required this.cdiDropDir,
     required this.dataDir,
     required this.countriesFile,
+    required this.caBundleFile,
+    required this.seedFile,
     required this.smtp,
     required this.notifyEmails,
     required this.notifyOnNoChanges,
@@ -94,6 +96,18 @@ class AppConfig {
 
   /// Файл справочника стран.
   final String countriesFile;
+
+  /// Файл с дополнительными доверенными сертификатами (PEM).
+  ///
+  /// Подставляется к системному хранилищу, а не заменяет его. Пусто или файла
+  /// нет — работает только системное хранилище.
+  final String caBundleFile;
+
+  /// Стартовый файл перечня из комплекта (xlsx).
+  ///
+  /// Загружается один раз, при первом запуске с пустой базой. Пусто или файла
+  /// нет — сервис стартует с пустым списком и наполнит его первой проверкой.
+  final String seedFile;
 
   final SmtpConfig smtp;
   final List<String> notifyEmails;
@@ -164,6 +178,30 @@ class AppConfig {
     return null;
   }
 
+  /// Читает `config.yaml`, превращая отказ файловой системы и синтаксическую
+  /// ошибку в сообщение для человека.
+  ///
+  /// На площадке этот файл правят вручную, и оба случая там обычны: права
+  /// `640 root:perechen` (служба читает, а запущенный от себя `paths` — уже
+  /// нет) и съехавшие отступы после правки. Без этого служба падала стеком
+  /// вызовов Dart, по которому причина не видна.
+  static Map<String, Object?> _readYaml(String path) {
+    final String text;
+    try {
+      text = File(path).readAsStringSync();
+    } on FileSystemException catch (error) {
+      final reason = error.osError?.message ?? error.message;
+      throw StateError('нет доступа к $path ($reason)');
+    }
+    final Object? parsed;
+    try {
+      parsed = loadYaml(text);
+    } on YamlException catch (error) {
+      throw StateError('$path разобрать не удалось: ${error.message}');
+    }
+    return parsed is YamlMap ? Map<String, Object?>.from(parsed) : const {};
+  }
+
   /// Читает конфигурацию из окружения и (необязательного) yaml-файла.
   ///
   /// Явно переданный [environment] отключает поиск `config.yaml` по системным
@@ -179,10 +217,7 @@ class AppConfig {
       searchDefaults: environment == null,
     );
     if (path != null) {
-      final parsed = loadYaml(File(path).readAsStringSync());
-      if (parsed is YamlMap) {
-        yamlValues = Map<String, Object?>.from(parsed);
-      }
+      yamlValues = _readYaml(path);
     }
 
     String read(String key, String fallback) {
@@ -228,6 +263,8 @@ class AppConfig {
       cdiDropDir: read('CDI_DROP_DIR', AppPaths.defaultCdiDropDir),
       dataDir: dataDir,
       countriesFile: read('COUNTRIES_FILE', AppPaths.defaultCountriesFile),
+      caBundleFile: read('CA_BUNDLE_FILE', AppPaths.defaultCaBundleFile),
+      seedFile: read('SEED_FILE', AppPaths.defaultSeedFile),
       smtp: SmtpConfig(
         host: read('SMTP_HOST', ''),
         port: readInt('SMTP_PORT', 25),
@@ -272,6 +309,8 @@ class AppConfig {
     String? cdiDropDir,
     String? dataDir,
     String? countriesFile,
+    String? caBundleFile,
+    String? seedFile,
     List<String>? notifyEmails,
     bool? notifyOnNoChanges,
     int? port,
@@ -292,6 +331,8 @@ class AppConfig {
         cdiDropDir: cdiDropDir ?? this.cdiDropDir,
         dataDir: dataDir ?? this.dataDir,
         countriesFile: countriesFile ?? this.countriesFile,
+        caBundleFile: caBundleFile ?? this.caBundleFile,
+        seedFile: seedFile ?? this.seedFile,
         smtp: smtp ?? this.smtp,
         notifyEmails: notifyEmails ?? this.notifyEmails,
         notifyOnNoChanges: notifyOnNoChanges ?? this.notifyOnNoChanges,

@@ -3,6 +3,8 @@
 #   .\scripts\build.ps1                          # собрать всё в dist\
 #   .\scripts\build.ps1 -SkipUi                  # только сервер
 #   .\scripts\build.ps1 -SqliteDll C:\sqlite3.dll  # своя библиотека SQLite
+#   .\scripts\build.ps1 -Seed C:\perechen.xlsx     # свой стартовый файл
+#   .\scripts\build.ps1 -NoSeed                    # без стартовых данных
 #
 # Результат: dist\perechen-<версия>-windows-<арх>\ и .zip рядом.
 # Кросс-компиляции у Dart нет: комплект для Windows собирается на Windows.
@@ -11,7 +13,9 @@
 param(
     [switch] $SkipUi,
     [string] $SqliteDll = '',
-    [switch] $NoSqliteDownload
+    [switch] $NoSqliteDownload,
+    [string] $Seed = '',
+    [switch] $NoSeed
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,7 +56,13 @@ if (-not $SkipUi) {
     try {
         & flutter pub get
         if ($LASTEXITCODE -ne 0) { throw 'flutter pub get завершился с ошибкой' }
-        & flutter build web --release
+        # --no-web-resources-cdn: CanvasKit в комплекте (закрытый контур),
+        # --pwa-strategy=none: без служебного воркера, кеширующего сборку.
+        & flutter build web --release --no-web-resources-cdn --pwa-strategy=none
+        # Заглушка поверх пустого файла, который оставляет сборка: снимает
+        # регистрацию воркера у браузеров, открывавших сервис раньше.
+        Copy-Item "$root/apps/ui/web/sw_killswitch.js" `
+            "$root/apps/ui/build/web/flutter_service_worker.js" -Force
         if ($LASTEXITCODE -ne 0) { throw 'flutter build web завершился с ошибкой' }
     } finally { Pop-Location }
 }
@@ -72,6 +82,36 @@ try {
 
 Copy-Item (Join-Path $root 'packages\core\assets\countries_ru.txt') `
     (Join-Path $stage 'assets\countries_ru.txt')
+# Недостающее звено цепочки сертификатов первоисточника: в закрытом контуре
+# его неоткуда дотянуть, поэтому едет в комплекте.
+Copy-Item (Join-Path $root 'apps\server\assets\ca-bundle.pem') `
+    (Join-Path $stage 'assets\ca-bundle.pem')
+
+# Стартовые данные: после установки интерфейс не должен встречать
+# ответственного пустым списком. Сервис подхватит файл при первом запуске,
+# пока база пуста. Не скачалось — комплект соберётся, список наполнится
+# первой проверкой сайта.
+$seedTarget = Join-Path $stage 'assets\perechen-seed.xlsx'
+if ($Seed) {
+    if (-not (Test-Path $Seed)) { throw "нет файла: $Seed" }
+    Copy-Item $Seed $seedTarget
+    Write-Host "    стартовые данные из файла: $Seed"
+}
+elseif (-not $NoSeed) {
+    Write-Host '==> стартовые данные с сайта Минюста'
+    $seedUrl = (Select-String -Path (Join-Path $root 'apps\server\config.example.yaml') `
+        -Pattern '^MINJUST_EXPORT_URL:\s*(.+)$').Matches[0].Groups[1].Value.Trim()
+    try {
+        Invoke-WebRequest -Uri $seedUrl -OutFile $seedTarget -UseBasicParsing -TimeoutSec 180
+        Write-Host ("    скачано: {0} байт" -f (Get-Item $seedTarget).Length)
+    }
+    catch {
+        Remove-Item $seedTarget -ErrorAction SilentlyContinue
+        Write-Warning ("стартовые данные не скачались ({0})." -f $_.Exception.Message)
+        Write-Warning 'После установки список будет пуст до первой проверки сайта.'
+        Write-Warning 'Свой файл: -Seed <путь>; отказаться совсем: -NoSeed'
+    }
+}
 Copy-Item (Join-Path $root 'apps\server\config.example.yaml') `
     (Join-Path $stage 'config.example.yaml')
 Copy-Item (Join-Path $root 'packaging\windows\*') `

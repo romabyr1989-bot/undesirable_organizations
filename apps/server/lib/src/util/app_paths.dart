@@ -94,6 +94,20 @@ class AppPaths {
   /// Каталог собранного Flutter Web.
   static String get defaultUiDir => p.join(bundleRoot, 'web');
 
+  /// Стартовый файл перечня из комплекта поставки.
+  ///
+  /// Подхватывается при первом запуске, если база пуста: после установки
+  /// ответственный должен увидеть данные, а не пустой список.
+  static String get defaultSeedFile =>
+      p.join(bundleRoot, 'assets', 'perechen-seed.xlsx');
+
+  /// Дополнительные доверенные сертификаты из комплекта поставки.
+  ///
+  /// Нужны, когда первоисточник присылает неполную цепочку: браузер дотянет
+  /// недостающее звено сам, а в закрытом контуре дотягивать неоткуда.
+  static String get defaultCaBundleFile =>
+      p.join(bundleRoot, 'assets', 'ca-bundle.pem');
+
   /// Каталог для нативных библиотек комплекта (sqlite3).
   static String get nativeLibDir => p.join(bundleRoot, 'lib');
 

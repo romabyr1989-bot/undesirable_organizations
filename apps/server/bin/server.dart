@@ -53,7 +53,7 @@ Future<void> main(List<String> arguments) async {
     file: config.logFile.isEmpty ? null : LogFile(config.logFile),
   );
 
-  final app = PerechenApp.create(config, logger: logger);
+  final app = _createApp(config, logger);
 
   switch (command) {
     case 'check-now':
@@ -91,7 +91,20 @@ Future<void> main(List<String> arguments) async {
       exit(0);
 
     case 'serve':
-      await app.start();
+      try {
+        await app.start();
+      } on SocketException catch (error) {
+        stderr.writeln(_startFailureMessage(config, error));
+        await app.stop();
+        exit(2);
+      } on FileSystemException catch (error) {
+        final reason = error.osError?.message ?? error.message;
+        stderr.writeln('не удалось подготовить рабочие каталоги: '
+            '${error.path ?? config.dataDir} ($reason). '
+            'Проверьте DATA_DIR и права пользователя службы.');
+        await app.stop();
+        exit(2);
+      }
       final completer = Completer<void>();
       ProcessSignal.sigint.watch().listen((_) async {
         logger.info('останавливаем сервис');
@@ -112,6 +125,55 @@ Future<void> main(List<String> arguments) async {
       await app.stop();
       exit(2);
   }
+}
+
+/// Собирает приложение, объясняя отказы установки словами.
+///
+/// Здесь открывается БД, а вместе с ней подхватывается libsqlite3 и создаётся
+/// рабочий каталог — то есть обе самые частые проблемы установки на «чистой»
+/// ОС всплывают до `start()`. Раньше любая из них роняла службу стеком
+/// вызовов Dart, по которому причина не читается.
+PerechenApp _createApp(AppConfig config, AppLogger logger) {
+  try {
+    return PerechenApp.create(config, logger: logger);
+  } on SqliteLibraryException catch (error) {
+    stderr.writeln('$error');
+    exit(2);
+  } on FileSystemException catch (error) {
+    final reason = error.osError?.message ?? error.message;
+    stderr.writeln('нет доступа к рабочему каталогу: '
+        '${error.path ?? config.dataDir} ($reason). '
+        'Проверьте ключ DATA_DIR в config.yaml и права пользователя службы.');
+    exit(2);
+  }
+}
+
+/// Объясняет, почему служба не заняла адрес.
+///
+/// Причина почти всегда одна из двух — порт уже занят или его не отдают по
+/// правам, — но в журнале это выглядело как стек вызовов Dart из недр
+/// `dart:io`, по которому оператору не понять ничего.
+String _startFailureMessage(AppConfig config, SocketException error) {
+  final address = '${config.host}:${config.port}';
+  final code = error.osError?.errorCode;
+  // Коды разные в трёх системах: Linux, macOS/BSD, Windows.
+  const addressInUse = {98, 48, 10048};
+  const accessDenied = {13, 10013};
+  if (addressInUse.contains(code)) {
+    return 'порт $address уже занят другой программой. Кто именно: '
+        '`ss -lntp | grep :${config.port}` (Linux), '
+        '`lsof -i :${config.port}` (macOS), '
+        '`netstat -ano | findstr :${config.port}` (Windows). '
+        'Другой порт задаётся ключом PORT в config.yaml.';
+  }
+  if (accessDenied.contains(code)) {
+    return 'нет прав занять порт $address. Порты ниже 1024 требуют root '
+        'или права CAP_NET_BIND_SERVICE — возьмите порт выше 1024 '
+        '(ключ PORT в config.yaml).';
+  }
+  final reason = error.osError?.message ?? error.message;
+  return 'не удалось занять адрес $address: $reason. '
+      'Проверьте ключи HOST и PORT в config.yaml.';
 }
 
 /// Читает конфигурацию, сообщая об ошибке человеку, а не стеком вызовов:
@@ -159,6 +221,8 @@ void _printPaths(AppConfig config) {
     ..writeln('справочник стран:     ${config.countriesFile} '
         '(${mark(config.countriesFile)})')
     ..writeln('веб-интерфейс:        ${config.uiDir} (${mark(config.uiDir)})')
+    ..writeln('сертификаты:          ${config.caBundleFile} '
+        '(${mark(config.caBundleFile)})')
     ..writeln('журнал:               $logTarget')
     ..writeln('адрес:                http://${config.host}:${config.port}')
     ..writeln('библиотека SQLite, порядок поиска:');

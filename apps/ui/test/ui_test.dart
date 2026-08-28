@@ -116,7 +116,7 @@ void main() {
       final afterOpen = api.calls.where((c) => c == 'versions').length;
 
       api.setVersions([versionJson(status: 'PUBLISHED')]);
-      await tester.pump(versionsAutoRefreshInterval);
+      await tester.pump(autoRefreshInterval);
       await tester.pumpAndSettle();
 
       expect(
@@ -275,7 +275,8 @@ void main() {
       expect(all.selected, isFalse);
     });
 
-    testWidgets('таблица показывает разбор и бейджи', (tester) async {
+    testWidgets('таблица показывает разбор, статусы — подсветкой строки',
+        (tester) async {
       await pumpVersion(tester, records: [
         recordJson(isNew: true, confidence: 'review', notes: ['ambiguous_length']),
         recordJson(
@@ -291,8 +292,29 @@ void main() {
           findsOneWidget);
       expect(find.text('OSI Assistance Foundation'), findsOneWidget);
       expect(find.text('США'), findsOneWidget);
-      expect(find.text('новая'), findsOneWidget);
-      // «требует проверки» есть и среди фильтров — ищем именно бейдж записи.
+
+      // Подписей статуса в списке нет — только подсветка.
+      expect(find.byType(RecordBadges), findsNothing);
+      expect(find.text('новая'), findsNothing);
+
+      final rows = tester
+          .widgetList<Container>(find.descendant(
+            of: find.byType(RecordRow),
+            matching: find.byType(Container),
+          ))
+          .where((c) => (c.decoration as BoxDecoration?)?.color != null)
+          .toList();
+      expect(rows, isNotEmpty, reason: 'запись на проверке подсвечена');
+    });
+
+    testWidgets('в развороте статус подписан словами', (tester) async {
+      await pumpVersion(tester, records: [
+        recordJson(isNew: true, confidence: 'review', notes: ['ambiguous_length']),
+      ]);
+
+      await tester.tap(find.text('Национальный фонд в поддержку демократии'));
+      await tester.pumpAndSettle();
+
       expect(
         find.descendant(
           of: find.byType(RecordBadges),
@@ -300,6 +322,32 @@ void main() {
         ),
         findsOneWidget,
       );
+      expect(find.text('новая'), findsOneWidget);
+    });
+
+    testWidgets('экран версии обновляется сам, но не поверх правки',
+        (tester) async {
+      final api = await pumpVersion(tester);
+      expect(find.byTooltip('Обновить'), findsNothing);
+
+      int recordCalls() =>
+          api.calls.where((c) => c.startsWith('records:')).length;
+
+      final afterOpen = recordCalls();
+      await tester.pump(autoRefreshInterval);
+      await tester.pumpAndSettle();
+      expect(recordCalls(), greaterThan(afterOpen),
+          reason: 'фоновое обновление сработало');
+
+      // Развернули строку на правку — фоновое обновление молчит.
+      await tester.tap(find.byIcon(Icons.expand_more).first);
+      await tester.pumpAndSettle();
+      final beforeEdit = recordCalls();
+      await tester.pump(autoRefreshInterval);
+      await tester.pumpAndSettle();
+      expect(recordCalls(), beforeEdit);
+
+      await tester.pumpWidget(const SizedBox.shrink());
     });
 
     testWidgets('длинное наименование обрезается и всплывает целиком',
@@ -424,10 +472,12 @@ void main() {
           ],
         ),
       ]);
-      expect(find.text('stale-правка'), findsOneWidget);
+      // В списке подпись не выводится — только подсветка строки.
+      expect(find.text('stale-правка'), findsNothing);
 
       await tester.tap(find.byIcon(Icons.expand_more).first);
       await tester.pumpAndSettle();
+      expect(find.text('stale-правка'), findsOneWidget);
       expect(
         find.text('Правка, отвязавшаяся от наименования'),
         findsOneWidget,
@@ -515,7 +565,30 @@ void main() {
         expect(find.text(column), findsOneWidget, reason: column);
       }
       expect(find.text('1'), findsOneWidget, reason: 'номер версии');
-      expect(find.text('—'), findsOneWidget, reason: 'событие без версии');
+      // Событие без версии оставляет ячейку пустой, без прочерка.
+      expect(find.text('—'), findsNothing);
+    });
+
+    testWidgets('журнал обновляется сам, кнопки обновления нет',
+        (tester) async {
+      useDesktopSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(PerechenApp(api: api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.receipt_long));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Обновить'), findsNothing);
+      final afterOpen = api.calls.where((c) => c == 'events').length;
+
+      await tester.pump(autoRefreshInterval);
+      await tester.pumpAndSettle();
+
+      expect(
+        api.calls.where((c) => c == 'events').length,
+        greaterThan(afterOpen),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
     });
 
     testWidgets('строки журнала никуда не ведут', (tester) async {
@@ -542,7 +615,8 @@ void main() {
         '14.08.2026 17:28',
       );
       expect(formatMoscowDate('2026-08-14T17:28:00+03:00'), '14.08.2026');
-      expect(formatMoscowDateTime(null), '—');
+      // Нет значения — пустая строка, без прочерка.
+      expect(formatMoscowDateTime(null), '');
     });
 
     test('русское склонение', () {

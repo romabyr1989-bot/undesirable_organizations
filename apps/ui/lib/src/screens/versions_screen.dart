@@ -6,18 +6,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../app.dart';
 import '../models/models.dart';
 import '../util/formatting.dart';
 import '../util/link_opener.dart';
 import '../widgets/badges.dart';
 import '../widgets/record_editor.dart';
-
-/// Как часто экран списка версий сам перечитывает состояние службы.
-///
-/// Сервер ничего в браузер не шлёт, а данные меняются без участия
-/// смотрящего: проверка сайта по расписанию, авто-публикация, действия
-/// другого ответственного.
-const versionsAutoRefreshInterval = Duration(seconds: 30);
 
 class VersionsScreen extends StatefulWidget {
   const VersionsScreen({super.key, required this.api});
@@ -41,7 +35,7 @@ class _VersionsScreenState extends State<VersionsScreen> {
     super.initState();
     _load();
     _autoRefresh = Timer.periodic(
-      versionsAutoRefreshInterval,
+      autoRefreshInterval,
       (_) => _load(silent: true),
     );
   }
@@ -249,7 +243,8 @@ class _VersionsScreenState extends State<VersionsScreen> {
                     'Скачано: ${formatMoscowDateTime(version.downloadedAt)}'
                     '${version.publishedAt == null ? '' : ' · опубликовано: '
                         '${formatMoscowDateTime(version.publishedAt)}'
-                        ' (${version.confirmedBy ?? '—'})'}',
+                        '${version.confirmedBy == null ? '' : ' '
+                            '(${version.confirmedBy})'}'}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 4),

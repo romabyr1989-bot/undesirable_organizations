@@ -452,7 +452,7 @@ class _SettingField extends StatelessWidget {
               children: [
                 Text(
                   'В конфигурации службы: '
-                  '${setting.fromConfig.isEmpty ? "— пусто —" : setting.fromConfig}',
+                  '${setting.fromConfig.isEmpty ? "не задано" : setting.fromConfig}',
                   style: theme.textTheme.bodySmall,
                 ),
                 TextButton(
