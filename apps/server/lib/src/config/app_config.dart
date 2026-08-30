@@ -40,6 +40,7 @@ class AppConfig {
     required this.minjustExportUrl,
     required this.exportLinkSelector,
     required this.userAgent,
+    required this.httpProxy,
     required this.downloadCron,
     required this.autoPublishCron,
     required this.timeZone,
@@ -78,6 +79,13 @@ class AppConfig {
   final String exportLinkSelector;
 
   final String userAgent;
+
+  /// Прокси для исходящих запросов: `host:port`, `http://host:port` или
+  /// `http://user:pass@host:port`. Пусто — ходим напрямую.
+  ///
+  /// Dart, в отличие от curl, переменные окружения `http_proxy` сам не читает,
+  /// а служба systemd их и не наследует, поэтому адрес задаётся явно.
+  final String httpProxy;
 
   /// Расписание ежедневной проверки (МСК).
   final String downloadCron;
@@ -257,6 +265,12 @@ class AppConfig {
         'HTTP_USER_AGENT',
         'PerechenBot/1.0 (+corporate data integration service)',
       ),
+      // Запасной вариант — переменные окружения в нижнем регистре: их задают
+      // на машинах, где наружу пускают только через прокси.
+      httpProxy: read(
+        'HTTP_PROXY',
+        env['https_proxy'] ?? env['http_proxy'] ?? '',
+      ),
       downloadCron: read('DOWNLOAD_CRON', '0 6 * * *'),
       autoPublishCron: read('AUTO_PUBLISH_CRON', '0 20 * * *'),
       timeZone: read('TZ', 'Europe/Moscow'),
@@ -325,6 +339,7 @@ class AppConfig {
         minjustExportUrl: minjustExportUrl ?? this.minjustExportUrl,
         exportLinkSelector: exportLinkSelector,
         userAgent: userAgent,
+        httpProxy: httpProxy,
         downloadCron: downloadCron,
         autoPublishCron: autoPublishCron,
         timeZone: timeZone,

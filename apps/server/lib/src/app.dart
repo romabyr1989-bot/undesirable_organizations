@@ -236,6 +236,7 @@ class PerechenApp {
       'configFile': config.configFile,
       'sqlite': SqliteLibrary.loadedFrom,
       'caBundle': TrustedHttpClient.loadedFrom,
+      'proxy': TrustedHttpClient.proxy?.display,
     });
 
     if (config.schedulerEnabled) {

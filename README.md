@@ -305,6 +305,7 @@ curl -u admin:пароль http://localhost:8080/api/health
 | `MINJUST_EXPORT_URL` | пусто в коде, рабочая ссылка — в `config.example.yaml` | Прямая ссылка на выгрузку xlsx (`reestrs.minjust.gov.ru/rest/registry/<id>/export`). Пусто — парсинг страницы, который сейчас не работает (см. Р-5) |
 | `EXPORT_LINK_SELECTOR` | `a[href*=".xlsx"]` | CSS-селектор ссылки на файл экспорта |
 | `HTTP_USER_AGENT` | `PerechenBot/1.0 …` | User-Agent загрузчика |
+| `HTTP_PROXY` | пусто | Прокси для исходящих запросов: `host:port`, `http://host:port`, `http://user:pass@host:port`. Пусто — напрямую. Служба не читает `http_proxy` из окружения: Dart этого не умеет, а systemd переменные не наследует |
 | `HTTP_TIMEOUT_SEC` | `60` | Таймаут HTTP |
 | `RETRIES` | `3` | Число попыток скачивания |
 | `RETRY_DELAYS_MIN` | `1,5,15` | Задержки между попытками, мин |

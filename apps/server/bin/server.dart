@@ -14,6 +14,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:perechen_server/src/app.dart';
 import 'package:perechen_server/src/config/app_config.dart';
+import 'package:perechen_server/src/download/trusted_http_client.dart';
 import 'package:perechen_server/src/config/runtime_settings.dart';
 import 'package:perechen_server/src/db/database.dart';
 import 'package:perechen_server/src/db/sqlite_library.dart';
@@ -205,6 +206,8 @@ void _printPaths(AppConfig config) {
   final logTarget = config.logFile.isEmpty
       ? 'stdout (перехватывает служба)'
       : config.logFile;
+  final proxy = TrustedHttpClient.parseProxy(config.httpProxy)?.display ??
+      'нет, запросы идут напрямую';
 
   stdout
     ..writeln('платформа:            ${Platform.operatingSystem} '
@@ -223,6 +226,7 @@ void _printPaths(AppConfig config) {
     ..writeln('веб-интерфейс:        ${config.uiDir} (${mark(config.uiDir)})')
     ..writeln('сертификаты:          ${config.caBundleFile} '
         '(${mark(config.caBundleFile)})')
+    ..writeln('прокси:               $proxy')
     ..writeln('журнал:               $logTarget')
     ..writeln('адрес:                http://${config.host}:${config.port}')
     ..writeln('библиотека SQLite, порядок поиска:');

@@ -4,9 +4,11 @@
 #   sudo ./install.sh
 #   sudo ./install.sh --data-dir /srv/perechen --cdi-dir /mnt/cdi/inbox --port 8080
 #   sudo ./install.sh --open-firewall        # заодно открыть порт в firewalld
+#   sudo ./install.sh --overwrite-config     # заменить config.yaml образцом
 #
 # Повторный запуск обновляет установленную службу, сохраняя данные и
-# /etc/perechen/config.yaml.
+# /etc/perechen/config.yaml. Ключ --overwrite-config заменяет конфигурацию
+# образцом из комплекта, сохраняя прежнюю рядом с отметкой времени.
 set -euo pipefail
 
 prefix=/opt/perechen
@@ -17,6 +19,7 @@ service_user=perechen
 port=8080
 service_name=perechen
 open_firewall=false
+overwrite_config=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -26,7 +29,8 @@ while [[ $# -gt 0 ]]; do
     --user)     service_user="${2:?}"; shift 2 ;;
     --port)     port="${2:?}"; shift 2 ;;
     --open-firewall) open_firewall=true; shift ;;
-    -h|--help)  sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --overwrite-config) overwrite_config=true; shift ;;
+    -h|--help)  sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "неизвестный аргумент: $1" >&2; exit 2 ;;
   esac
 done
@@ -38,7 +42,10 @@ command -v systemctl >/dev/null || {
 }
 
 bundle="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-[[ -x "$bundle/bin/perechen" ]] || {
+# Проверяем наличие файла, а не право на запуск: комплект часто переносят
+# папкой через Windows, и биты запуска теряются по дороге. Права установщик
+# выставит сам после копирования.
+[[ -f "$bundle/bin/perechen" ]] || {
   echo "в комплекте нет bin/perechen: $bundle" >&2
   exit 1
 }
@@ -85,8 +92,16 @@ for item in bin lib web assets packaging; do
 done
 [[ -f "$bundle/README.md" ]] && cp "$bundle/README.md" "$prefix/"
 cp "$bundle/config.example.yaml" "$prefix/config.example.yaml"
+
+# Права выставляем заново, а не полагаемся на исходные: при переносе комплекта
+# папкой через Windows или SFTP биты запуска теряются, и служба потом падает с
+# 203/EXEC. Каталогам нужен вход, файлам — чтение, программе и скриптам — запуск.
 chown -R root:root "$prefix"
+chmod -R u=rwX,go=rX "$prefix"
 chmod 755 "$prefix/bin/perechen"
+for script in "$prefix"/packaging/*.sh; do
+  [[ -f "$script" ]] && chmod 755 "$script"
+done
 
 echo "==> каталоги данных"
 install -d -o "$service_user" -g "$service_user" -m 750 \
@@ -95,9 +110,16 @@ install -d -o "$service_user" -g "$service_user" -m 775 "$cdi_dir"
 
 echo "==> конфигурация $config_dir/config.yaml"
 install -d -m 755 "$config_dir"
-if [[ -f "$config_dir/config.yaml" ]]; then
-  echo "    файл уже есть — оставляем как есть"
+if [[ -f "$config_dir/config.yaml" && "$overwrite_config" == false ]]; then
+  echo "    файл уже есть — оставляем как есть (заменить: --overwrite-config)"
 else
+  # Прежнюю конфигурацию не теряем: в ней пароли, адреса SMTP и получатели,
+  # восстановить их по памяти обычно нечем.
+  if [[ -f "$config_dir/config.yaml" ]]; then
+    backup="$config_dir/config.yaml.$(date +%Y%m%d-%H%M%S).bak"
+    cp -p "$config_dir/config.yaml" "$backup"
+    echo "    прежняя конфигурация сохранена: $backup"
+  fi
   sed -e "s#^DATA_DIR:.*#DATA_DIR: $data_dir#" \
       -e "s#^CDI_DROP_DIR:.*#CDI_DROP_DIR: $cdi_dir#" \
       -e "s#^PORT:.*#PORT: $port#" \
@@ -105,6 +127,7 @@ else
   chown "root:$service_user" "$config_dir/config.yaml"
   # В файле пароли SMTP и basic-auth: читать может только служба.
   chmod 640 "$config_dir/config.yaml"
+  echo "    записана из образца комплекта (порт $port, папка CDI $cdi_dir)"
 fi
 
 echo "==> юнит systemd"
