@@ -63,12 +63,22 @@ mkdir -p "$stage/bin" "$stage/lib" "$stage/assets" "$stage/packaging"
 
 if [[ "$skip_ui" == false ]]; then
   echo "==> Flutter Web"
+  # Собираем с нуля. Следы прошлых сборок — особенно принесённые с другой
+  # машины build/ и .dart_tool/ — сбивают инкрементальную сборку: она считает
+  # свои же свежие файлы устаревшими и удаляет их. В комплект тогда уезжает
+  # интерфейс без манифеста ресурсов, шрифта значков и статики из web/,
+  # причём сборка завершается успешно и молча.
+  (cd "$root/apps/ui" && flutter clean >/dev/null)
   # --no-web-resources-cdn: CanvasKit кладётся в комплект, иначе интерфейс
   #   в закрытом контуре не запускается (тянет его с gstatic.com).
   # --pwa-strategy=none: без служебного воркера, который кеширует сборку и
   #   после обновления службы показывает прежний интерфейс.
+  # --no-tree-shake-icons: на части версий Flutter отсев неиспользуемых значков
+  #   выбрасывает шрифт MaterialIcons целиком, и в интерфейсе вместо значков
+  #   остаются пустые места. Лишние 1,5 МБ дешевле сломанного интерфейса.
   (cd "$root/apps/ui" && flutter pub get &&
-    flutter build web --release --no-web-resources-cdn --pwa-strategy=none)
+    flutter build web --release --no-web-resources-cdn --pwa-strategy=none \
+      --no-tree-shake-icons)
   # Заглушка поверх пустого файла, который оставляет сборка: снимает
   # регистрацию воркера у браузеров, открывавших сервис раньше.
   cp "$root/apps/ui/web/sw_killswitch.js" \
@@ -78,6 +88,18 @@ if [[ ! -d "$root/apps/ui/build/web" ]]; then
   echo "нет собранного UI: $root/apps/ui/build/web" >&2
   exit 1
 fi
+# Сборка интерфейса должна быть полной. Однажды в комплект уехал интерфейс без
+# манифеста ресурсов, шрифта значков и статики: значки и логотип не рисовались,
+# а сборка при этом прошла успешно и молча. Дешевле проверить здесь, чем
+# обнаружить это на площадке.
+web_build="$root/apps/ui/build/web"
+for required in assets/AssetManifest.bin.json assets/FontManifest.json \
+                assets/fonts/MaterialIcons-Regular.otf index.html main.dart.js; do
+  [[ -f "$web_build/$required" ]] && continue
+  echo "в сборке интерфейса нет $required" >&2
+  echo "(следы прошлых сборок сбивают Flutter — помогает flutter clean)" >&2
+  exit 1
+done
 cp -R "$root/apps/ui/build/web" "$stage/web"
 
 echo "==> сервер"
