@@ -35,6 +35,19 @@ if (-not (Test-Path (Join-Path $bundle 'bin\perechen.exe'))) {
     throw "в комплекте нет bin\perechen.exe: $bundle"
 }
 
+# Комплект не должен лежать внутри каталога установки и наоборот: каталоги
+# заменяются целиком, и при пересечении путей установщик удалил бы файлы,
+# которые сам же собирается копировать.
+$bundleFull  = [IO.Path]::GetFullPath($bundle).TrimEnd('\')
+$installFull = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+if ($bundleFull -ieq $installFull -or
+    $bundleFull.StartsWith($installFull + '\', 'OrdinalIgnoreCase') -or
+    $installFull.StartsWith($bundleFull + '\', 'OrdinalIgnoreCase')) {
+    throw ("Комплект распакован внутри каталога установки: комплект $bundleFull, " +
+           "установка $installFull. Распакуйте архив в отдельный каталог " +
+           "(например, C:\Temp) и запустите install.ps1 оттуда, либо укажите -InstallDir.")
+}
+
 if (-not $CdiDir) { $CdiDir = Join-Path $DataDir 'cdi-inbox' }
 $configPath = Join-Path $DataDir 'config.yaml'
 $logPath    = Join-Path $DataDir 'logs\perechen.log'
@@ -50,12 +63,17 @@ if ($existing) {
 
 Write-Host "==> файлы в $InstallDir"
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+# Сначала копия рядом, потом замена: сорвавшееся копирование не должно
+# оставлять установку без файлов.
 foreach ($item in 'bin', 'lib', 'web', 'assets', 'packaging') {
     $source = Join-Path $bundle $item
     if (-not (Test-Path $source)) { continue }
     $target = Join-Path $InstallDir $item
+    $staged = "$target.new"
+    if (Test-Path $staged) { Remove-Item $staged -Recurse -Force }
+    Copy-Item $source $staged -Recurse
     if (Test-Path $target) { Remove-Item $target -Recurse -Force }
-    Copy-Item $source $target -Recurse
+    Move-Item $staged $target
 }
 foreach ($file in 'README.md', 'config.example.yaml') {
     $source = Join-Path $bundle $file

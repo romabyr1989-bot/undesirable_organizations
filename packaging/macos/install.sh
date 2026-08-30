@@ -34,6 +34,20 @@ bundle="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   exit 1
 }
 
+# Комплект не должен лежать внутри каталога установки и наоборот: каталоги
+# заменяются целиком, и при пересечении путей установщик удалил бы файлы,
+# которые сам же собирается копировать.
+if [[ "$bundle" == "$prefix" || "$bundle" == "$prefix"/* || "$prefix" == "$bundle"/* ]]; then
+  cat >&2 <<EOF
+Комплект распакован внутри каталога установки:
+  комплект:  $bundle
+  установка: $prefix
+Так ставить нельзя — установщик удалил бы исходные файлы. Распакуйте архив
+в отдельный каталог и запустите install.sh оттуда, либо укажите --prefix.
+EOF
+  exit 1
+fi
+
 plist="/Library/LaunchDaemons/$label.plist"
 log_file="$data_dir/logs/perechen.log"
 error_log="$data_dir/logs/perechen.err.log"
@@ -45,10 +59,14 @@ fi
 
 echo "==> файлы в $prefix"
 mkdir -p "$prefix"
+# Сначала копия рядом, потом замена: сорвавшееся копирование не должно
+# оставлять установку без файлов.
 for item in bin lib web assets packaging; do
   [[ -e "$bundle/$item" ]] || continue
+  rm -rf "${prefix:?}/$item.new"
+  cp -R "$bundle/$item" "$prefix/$item.new"
   rm -rf "${prefix:?}/$item"
-  cp -R "$bundle/$item" "$prefix/"
+  mv "$prefix/$item.new" "$prefix/$item"
 done
 [[ -f "$bundle/README.md" ]] && cp "$bundle/README.md" "$prefix/"
 cp "$bundle/config.example.yaml" "$prefix/config.example.yaml"
